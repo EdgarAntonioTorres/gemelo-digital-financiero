@@ -1,0 +1,141 @@
+version: "3.8"
+
+# Gemelo Digital Financiero — entorno base de desarrollo (t023)
+#
+# Servicios:
+#   - postgres-airflow : metadata DB de Airflow (interna, no analítica)
+#   - postgres-dw       : PostgreSQL analítico con esquemas `gold` y `operational`
+#                          (ver sección 6.1 del Contexto Maestro: Bronze/Silver
+#                          viven en MinIO, Gold y Operacional en este motor)
+#   - minio              : almacenamiento de objetos S3-compatible para Bronze/Silver
+#   - minio-init         : crea los buckets bronze/ y silver/ al arrancar
+#   - airflow-init        : inicializa la base de metadata y el usuario admin
+#   - airflow-webserver / airflow-scheduler : orquestación (LocalExecutor)
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.9.3-python3.11
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow/airflow
+    AIRFLOW__CORE__FERNET_KEY: ""
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
+    # Credenciales / endpoints que consumen los DAGs y jobs de Spark:
+    MINIO_ENDPOINT: http://minio:9000
+    MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+    MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    DW_POSTGRES_HOST: postgres-dw
+    DW_POSTGRES_DB: gemelo_digital
+    DW_POSTGRES_USER: ${DW_POSTGRES_USER:-gdf_user}
+    DW_POSTGRES_PASSWORD: ${DW_POSTGRES_PASSWORD:-gdf_pass}
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./src:/opt/airflow/src
+    - ./config:/opt/airflow/config
+    - ./tests:/opt/airflow/tests
+    - airflow-logs:/opt/airflow/logs
+  depends_on:
+    postgres-airflow:
+      condition: service_healthy
+
+services:
+
+  # --- Metadata DB de Airflow ---
+  postgres-airflow:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-airflow-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # --- Base analítica (capa Gold + esquema Operacional) ---
+  postgres-dw:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${DW_POSTGRES_USER:-gdf_user}
+      POSTGRES_PASSWORD: ${DW_POSTGRES_PASSWORD:-gdf_pass}
+      POSTGRES_DB: gemelo_digital
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-dw-data:/var/lib/postgresql/data
+      - ./config/init-dw-schemas.sql:/docker-entrypoint-initdb.d/init-dw-schemas.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${DW_POSTGRES_USER:-gdf_user}"]
+      interval: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # --- Almacenamiento S3-compatible para Bronze/Silver ---
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    ports:
+      - "9000:9000"   # API S3
+      - "9001:9001"   # Consola web
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      retries: 5
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin123}; do sleep 2; done;
+      mc mb -p local/bronze;
+      mc mb -p local/silver;
+      exit 0;
+      "
+
+  # --- Airflow ---
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username admin --password admin \
+          --firstname Admin --lastname User \
+          --role Admin --email admin@example.com || true
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  postgres-airflow-data:
+  postgres-dw-data:
+  minio-data:
+  airflow-logs:

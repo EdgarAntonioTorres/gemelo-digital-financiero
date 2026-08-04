@@ -1,0 +1,5 @@
+# Dependencias de desarrollo mínimas para lint/test local (t024).
+# Las dependencias de PySpark/ML/IA se irán agregando por fase.
+black==24.4.2
+flake8==7.0.0
+pytest==8.2.0

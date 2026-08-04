@@ -1,0 +1,28 @@
+# Entorno
+.env
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Airflow
+logs/
+airflow.db
+airflow.cfg
+
+# Datos y modelos (no versionar binarios pesados)
+data/bronze/
+data/silver/
+data/raw/
+*.parquet
+*.pkl
+*.onnx
+
+# IDE / SO
+.vscode/
+.idea/
+.DS_Store
+
+
+#Extras
+parami.md
