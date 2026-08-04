@@ -2,6 +2,10 @@ version: "3.8"
 
 # Gemelo Digital Financiero — entorno base de desarrollo (t023)
 #
+# Todas las credenciales se leen desde .env (nunca hardcodeadas aquí).
+# Si falta alguna variable, Docker Compose falla al arrancar con un
+# mensaje claro, en vez de usar un valor por defecto silencioso.
+#
 # Servicios:
 #   - postgres-airflow : metadata DB de Airflow (interna, no analítica)
 #   - postgres-dw       : PostgreSQL analítico con esquemas `gold` y `operational`
@@ -16,18 +20,18 @@ x-airflow-common: &airflow-common
   image: apache/airflow:2.9.3-python3.11
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow/airflow
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER:?falta AIRFLOW_DB_USER en .env}:${AIRFLOW_DB_PASSWORD:?falta AIRFLOW_DB_PASSWORD en .env}@postgres-airflow/airflow
     AIRFLOW__CORE__FERNET_KEY: ""
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
     # Credenciales / endpoints que consumen los DAGs y jobs de Spark:
     MINIO_ENDPOINT: http://minio:9000
-    MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
-    MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?falta MINIO_ROOT_USER en .env}
+    MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?falta MINIO_ROOT_PASSWORD en .env}
     DW_POSTGRES_HOST: postgres-dw
     DW_POSTGRES_DB: gemelo_digital
-    DW_POSTGRES_USER: ${DW_POSTGRES_USER:-gdf_user}
-    DW_POSTGRES_PASSWORD: ${DW_POSTGRES_PASSWORD:-gdf_pass}
+    DW_POSTGRES_USER: ${DW_POSTGRES_USER:?falta DW_POSTGRES_USER en .env}
+    DW_POSTGRES_PASSWORD: ${DW_POSTGRES_PASSWORD:?falta DW_POSTGRES_PASSWORD en .env}
   volumes:
     - ./dags:/opt/airflow/dags
     - ./src:/opt/airflow/src
@@ -44,13 +48,13 @@ services:
   postgres-airflow:
     image: postgres:15
     environment:
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
+      POSTGRES_USER: ${AIRFLOW_DB_USER:?falta AIRFLOW_DB_USER en .env}
+      POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD:?falta AIRFLOW_DB_PASSWORD en .env}
       POSTGRES_DB: airflow
     volumes:
       - postgres-airflow-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "airflow"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
       interval: 5s
       retries: 5
     restart: unless-stopped
@@ -59,8 +63,8 @@ services:
   postgres-dw:
     image: postgres:15
     environment:
-      POSTGRES_USER: ${DW_POSTGRES_USER:-gdf_user}
-      POSTGRES_PASSWORD: ${DW_POSTGRES_PASSWORD:-gdf_pass}
+      POSTGRES_USER: ${DW_POSTGRES_USER:?falta DW_POSTGRES_USER en .env}
+      POSTGRES_PASSWORD: ${DW_POSTGRES_PASSWORD:?falta DW_POSTGRES_PASSWORD en .env}
       POSTGRES_DB: gemelo_digital
     ports:
       - "5433:5432"
@@ -68,7 +72,7 @@ services:
       - postgres-dw-data:/var/lib/postgresql/data
       - ./config/init-dw-schemas.sql:/docker-entrypoint-initdb.d/init-dw-schemas.sql:ro
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "${DW_POSTGRES_USER:-gdf_user}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
       interval: 5s
       retries: 5
     restart: unless-stopped
@@ -78,8 +82,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?falta MINIO_ROOT_USER en .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?falta MINIO_ROOT_PASSWORD en .env}
     ports:
       - "9000:9000"   # API S3
       - "9001:9001"   # Consola web
@@ -95,9 +99,12 @@ services:
     image: minio/mc:latest
     depends_on:
       - minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?falta MINIO_ROOT_USER en .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?falta MINIO_ROOT_PASSWORD en .env}
     entrypoint: >
       /bin/sh -c "
-      until mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin123}; do sleep 2; done;
+      until mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD; do sleep 2; done;
       mc mb -p local/bronze;
       mc mb -p local/silver;
       exit 0;
@@ -107,12 +114,16 @@ services:
   airflow-init:
     <<: *airflow-common
     entrypoint: /bin/bash
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:?falta AIRFLOW_ADMIN_USER en .env}
+      _AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:?falta AIRFLOW_ADMIN_PASSWORD en .env}
     command:
       - -c
       - |
         airflow db migrate
         airflow users create \
-          --username admin --password admin \
+          --username "$$_AIRFLOW_ADMIN_USER" --password "$$_AIRFLOW_ADMIN_PASSWORD" \
           --firstname Admin --lastname User \
           --role Admin --email admin@example.com || true
 
