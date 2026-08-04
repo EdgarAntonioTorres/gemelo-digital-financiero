@@ -1,0 +1,11 @@
+# Configuración de GitGuardian para este repo.
+# Doc: https://docs.gitguardian.com/ggshield-docs/reference/config
+
+version: 2
+
+secret:
+  # .env.example solo contiene placeholders (CHANGE_ME_...), nunca
+  # credenciales reales. Se ignora explícitamente para evitar falsos
+  # positivos recurrentes, pero queda documentado el motivo aquí.
+  ignored-paths:
+    - ".env.example"
