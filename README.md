@@ -29,7 +29,7 @@ Este repositorio construye el **motor de datos e IA** que resuelve eso: un Gemel
 Arquitectura **Lakehouse Medallion**, con Bronze/Silver en almacenamiento de objetos y Gold en una base analítica:
 
 ```
-Loan Default (dataset base) + Credit Risk (complemento)
+ Loan Default (base) + Credit Risk (complemento) + Personal Finance Tracker (comportamiento/ahorro)
         │
         ▼
  [BRONZE] ──► [SILVER] ──► [GOLD]        (MinIO/S3 → PySpark → PostgreSQL/DuckDB)
@@ -107,7 +107,7 @@ Cada push/PR a `main` o `develop` corre automáticamente lint (`black`, `flake8`
 
 - **[Loan Default Dataset](https://www.kaggle.com/datasets/yasserh/loan-default-dataset)** (Kaggle) — base principal para el KPI de riesgo y el modelo predictivo.
 - **[Credit Risk Dataset](https://www.kaggle.com/datasets/laotse/credit-risk-dataset)** (Kaggle) — complemento y validación cruzada, ponderado hacia usuarios <30 años.
-- *(Opcional, valor agregado)* Credit Card Fraud Detection — módulo de detección de anomalías, solo si sobra tiempo tras el MVP.
+- **[Personal Finance Tracker Dataset](https://www.kaggle.com/datasets/khushikyad001/personal-finance-tracker-dataset)** (Kaggle, MIT) — series de tiempo de ingreso/gasto, feature store de Gold e insumo principal de ambos dashboards. No trae `age` nativo: se deriva de forma sintética vía `maturity_score` (ver `config/README.md` y sección 5.1 del Contexto Maestro).
 
 ## 🗺️ Estado del proyecto
 
