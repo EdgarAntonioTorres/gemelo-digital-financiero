@@ -29,7 +29,7 @@ Este repositorio construye el **motor de datos e IA** que resuelve eso: un Gemel
 Arquitectura **Lakehouse Medallion**, con Bronze/Silver en almacenamiento de objetos y Gold en una base analítica:
 
 ```
-Loan Default (dataset base) + Credit Risk (complemento)
+Loan Default (base) + Credit Risk (complemento) + Personal Finance Tracker (comportamiento/ahorro)
         │
         ▼
  [BRONZE] ──► [SILVER] ──► [GOLD]        (MinIO/S3 → PySpark → PostgreSQL/DuckDB)
@@ -105,9 +105,9 @@ Cada push/PR a `main` o `develop` corre automáticamente lint (`black`, `flake8`
 
 ## 📊 Fuentes de datos
 
-- **[Loan Default Dataset](https://www.kaggle.com/datasets/yasserh/loan-default-dataset)** (Kaggle) — base principal para el KPI de riesgo y el modelo predictivo.
+- **[Loan Default Dataset](https://www.kaggle.com/datasets/yasserh/loan-default-dataset)** (Kaggle) — base principal para el KPI de riesgo y el modelo predictivo (única fuente con variable objetivo `Status`).
 - **[Credit Risk Dataset](https://www.kaggle.com/datasets/laotse/credit-risk-dataset)** (Kaggle) — complemento y validación cruzada, ponderado hacia usuarios <30 años.
-- *(Opcional, valor agregado)* Credit Card Fraud Detection — módulo de detección de anomalías, solo si sobra tiempo tras el MVP.
+- **[Personal Finance Tracker Dataset](https://www.kaggle.com/datasets/khushikyad001/personal-finance-tracker-dataset)** (Kaggle, licencia MIT) — fuente principal para la capa Gold, los KPIs de ahorro/riesgo y ambos dashboards; incluye `fraud_flag` nativo, por lo que sustituye al módulo de detección de fraude que se consideraba como diferenciador opcional.
 
 ## 🗺️ Estado del proyecto
 
