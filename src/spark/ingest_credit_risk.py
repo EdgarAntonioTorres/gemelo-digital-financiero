@@ -117,7 +117,7 @@ def ingest(spark: SparkSession, csv_path: str) -> None:
     if row_count == 0:
         raise ValueError("El CSV descargado está vacío — abortando la ingesta.")
 
-    # Escritura en capa Bronze: formato Parquet optimizado con compresión snappy y sobreescritura idempotente
+    # Escritura en capa Bronze: formato Parquet optimizado
     logger.info("Escribiendo a Bronze en: %s", BRONZE_PATH)
     df.write.mode("overwrite").option("compression", "snappy").parquet(BRONZE_PATH)
     logger.info("Ingesta completada: %s filas escritas en %s", row_count, BRONZE_PATH)

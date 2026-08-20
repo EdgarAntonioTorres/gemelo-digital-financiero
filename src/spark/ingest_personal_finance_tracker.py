@@ -116,7 +116,7 @@ def ingest(spark: SparkSession, csv_path: str) -> None:
         raise ValueError("El CSV descargado está vacío — abortando la ingesta.")
 
     # Chequeo suave (Data Quality / Drift check):
-    # Compara contra la dimensionalidad base documentada (3000x25). Emite warning sin frenar ejecución.
+    # Compara contra la dimensionalidad base documentada. Emite warning sin frenar ejecución.
     if row_count != 3000 or col_count != 25:
         logger.warning(
             "Dimensiones distintas a las documentadas (3000x25): %s filas x %s columnas. "
