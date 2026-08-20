@@ -3,3 +3,7 @@
 black==24.4.2
 flake8==7.0.0
 pytest==8.2.0
+ 
+# Fase 2 — Ingesta (t029, t030, t030b)
+pyspark==3.5.1
+kagglehub==0.2.9
