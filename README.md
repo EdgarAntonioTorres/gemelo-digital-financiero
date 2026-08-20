@@ -29,8 +29,7 @@ Este repositorio construye el **motor de datos e IA** que resuelve eso: un Gemel
 Arquitectura **Lakehouse Medallion**, con Bronze/Silver en almacenamiento de objetos y Gold en una base analítica:
 
 ```
-Loan Default (base) + Credit Risk (complemento) + Personal Finance Tracker (comportamiento/ahorro)
-Loan Default (base) + Credit Risk (complemento) + Personal Finance Tracker (comportamiento/ahorro)
+ Loan Default (base) + Credit Risk (complemento) + Personal Finance Tracker (comportamiento/ahorro)
         │
         ▼
  [BRONZE] ──► [SILVER] ──► [GOLD]        (MinIO/S3 → PySpark → PostgreSQL/DuckDB)
