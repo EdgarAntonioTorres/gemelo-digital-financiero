@@ -108,6 +108,7 @@ Cada push/PR a `main` o `develop` corre automáticamente lint (`black`, `flake8`
 - **[Loan Default Dataset](https://www.kaggle.com/datasets/yasserh/loan-default-dataset)** (Kaggle) — base principal para el KPI de riesgo y el modelo predictivo (única fuente con variable objetivo `Status`).
 - **[Credit Risk Dataset](https://www.kaggle.com/datasets/laotse/credit-risk-dataset)** (Kaggle) — complemento y validación cruzada, ponderado hacia usuarios <30 años.
 - **[Personal Finance Tracker Dataset](https://www.kaggle.com/datasets/khushikyad001/personal-finance-tracker-dataset)** (Kaggle, MIT) — series de tiempo de ingreso/gasto, feature store de Gold e insumo principal de ambos dashboards. No trae `age` nativo: se deriva de forma sintética vía `maturity_score` (ver `config/README.md` y sección 5.1 del Contexto Maestro).
+- **[Personal Finance Tracker Dataset](https://www.kaggle.com/datasets/khushikyad001/personal-finance-tracker-dataset)** (Kaggle, licencia MIT) — fuente principal para la capa Gold, los KPIs de ahorro/riesgo y ambos dashboards; incluye `fraud_flag` nativo, por lo que sustituye al módulo de detección de fraude que se consideraba como diferenciador opcional.
 
 ## 🗺️ Estado del proyecto
 
