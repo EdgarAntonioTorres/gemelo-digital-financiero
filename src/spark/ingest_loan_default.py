@@ -3,16 +3,30 @@ Ingesta Bronze — Loan Default Dataset
 
 Descarga el dataset desde Kaggle vía kagglehub y lo escribe crudo,
 sin transformaciones de negocio, a la capa Bronze en MinIO en
-formato Parquet, particionado por fecha de ingesta (t031).
+formato Parquet, particionado por fecha de ingesta, con
+reintentos y manejo de errores por categoría.
 
 Por qué particionar por fecha:
-Antes (t029 original) cada corrida hacía overwrite sobre TODO el path
-de Bronze, así que si corrías el script dos días distintos, el segundo
-día borraba por completo lo que había escrito el primero. Con overwrite
-dinámico + partición por ingestion_date, cada corrida solo toca la
-carpeta del día en que se ejecuta (ingestion_date=YYYY-MM-DD/), dejando
-intactas las carpetas de días anteriores. Así Bronze funciona como un
-histórico real de ingestas, no como una "foto" que se pisa cada vez.
+Antes cada corrida hacía overwrite sobre TODO el path de Bronze, así que
+si corrías el script dos días distintos, el segundo día borraba lo que
+había escrito el primero. Con overwrite dinámico + partición por
+ingestion_date, cada corrida solo toca la carpeta del día en que se
+ejecuta, dejando intactas las de días anteriores.
+
+Qué agrega el manejo de errores:
+1. Reintentos con backoff en la descarga de Kaggle — el paso más expuesto
+   a fallas transitorias de red, ya que depende de un servicio externo.
+2. Categorías de error distintas con su propio código de salida, para que
+   quien lea los logs (o el futuro DAG de Airflow) pueda distinguir
+   de un vistazo qué tipo de falla ocurrió sin tener que leer el stack
+   trace completo:
+     - exit(2): falta configuración de entorno (env vars de MinIO).
+     - exit(3): problema con los datos/fuente (CSV vacío, no encontrado,
+       o falla persistente de conexión a Kaggle tras los reintentos).
+     - exit(1): cualquier otra falla no anticipada (ej. error al escribir
+       en MinIO/S3A).
+3. Se loguea la duración total de la corrida, éxito o falla, útil para
+   detectar degradación de performance con el tiempo.
 
 Uso standalone (para probarlo suelto antes de envolverlo en el DAG de Airflow):
     spark-submit --packages org.apache.hadoop:hadoop-aws:3.3.4 src/spark/ingest_loan_default.py
@@ -24,12 +38,13 @@ Variables de entorno requeridas (ya definidas en docker-compose.yml / .env):
 # ==============================================================================
 # 1. IMPORTS Y CONFIGURACIÓN INICIAL
 # ==============================================================================
-# Módulos estándar de Python: manejo de rutas/variables de entorno (os),
-# salida controlada del programa (sys), logging estructurado (logging) y
-# fecha/hora en UTC para el sello de ingestion_date (datetime).
+# Módulos estándar: rutas/env vars (os), salida controlada (sys), logging
+# estructurado (logging), fecha/hora en UTC (datetime), y time para medir
+# duración de la corrida y para las pausas entre reintentos (backoff).
 import logging
 import os
 import sys
+import time
 from datetime import datetime, timezone
 
 # kagglehub: cliente que descarga datasets públicos de Kaggle a un caché local.
@@ -41,15 +56,16 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import lit
 
 # Identificador del dataset en Kaggle (usuario/nombre-del-dataset) y la ruta
-# raíz en MinIO donde queda la capa Bronze de esta fuente. Todo lo demás del
-# script depende de estas dos constantes, así que si cambia el dataset de
-# origen o el bucket destino, solo hay que tocar estas dos líneas.
+# raíz en MinIO donde queda la capa Bronze de esta fuente.
 KAGGLE_DATASET = "yasserh/loan-default-dataset"
 BRONZE_PATH = "s3a://bronze/loan_default/"
 
-# Configuración del logger: cada línea de log queda con timestamp, nivel
-# (INFO/WARNING/ERROR) y el nombre del logger, para poder rastrear qué pasó
-# y cuándo si algo falla en una corrida del DAG (no solo en local).
+# Parámetros de reintento para la descarga desde Kaggle. 3 intentos
+# con backoff lineal (5s, 10s) cubren la mayoría de fallas transitorias de
+# red sin alargar demasiado una corrida que sí está condenada a fallar.
+MAX_DOWNLOAD_RETRIES = 3
+RETRY_BACKOFF_SECONDS = 5
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -63,10 +79,11 @@ logger = logging.getLogger("ingest_loan_default")
 def get_required_env(name: str) -> str:
     """Lee una variable de entorno obligatoria o falla con un mensaje claro.
 
-    Se usa para MINIO_ENDPOINT/MINIO_ACCESS_KEY/MINIO_SECRET_KEY: si falta
-    alguna, es mejor que el script truene de inmediato con un mensaje
-    explícito, en vez de arrastrar un error confuso más adelante (por
-    ejemplo, un fallo de conexión sin contexto de qué variable faltó).
+    Levanta RuntimeError a propósito (no una excepción genérica): en
+    main() se atrapa RuntimeError por separado para loguearlo como un
+    problema de CONFIGURACIÓN (exit code 2), distinto de un problema de
+    DATOS (exit code 3) — así se sabe de inmediato, sin leer el stack
+    trace, si hay que revisar el .env o el dataset de origen.
     """
     value = os.environ.get(name)
     if not value:
@@ -77,21 +94,14 @@ def get_required_env(name: str) -> str:
 def build_spark_session() -> SparkSession:
     """Crea la sesión de Spark configurada para hablar con MinIO vía S3A.
 
-    Cada .config(...) tiene un propósito puntual:
-    - endpoint/access.key/secret.key: cómo y con qué credenciales conectarse
-      a MinIO (que actúa como un S3 "simulado" corriendo en Docker).
+    - endpoint/access.key/secret.key: credenciales de conexión a MinIO.
     - path.style.access=true: MinIO necesita direcciones tipo
-      http://host/bucket/objeto en vez del estilo AWS real
-      (http://bucket.host/objeto).
-    - connection.ssl.enabled=false: en local no hay HTTPS configurado
-      entre Spark y MinIO, así que se desactiva la verificación SSL.
-    - S3AFileSystem: el driver que le permite a Spark leer/escribir
-      rutas s3a:// (sin esto, Spark no sabe qué hacer con ese esquema).
-    - partitionOverwriteMode=dynamic: la pieza clave de t031 — hace que
-      un .mode("overwrite") con partitionBy() solo reemplace las
-      particiones que el DataFrame realmente trae (en este caso, la
-      partición del día de hoy), en vez de borrar TODO el path como
-      hacía el overwrite "estático" por defecto.
+      http://host/bucket/objeto, no el estilo AWS real.
+    - connection.ssl.enabled=false: no hay HTTPS configurado en local.
+    - S3AFileSystem: driver que permite a Spark leer/escribir rutas s3a://.
+    - partitionOverwriteMode=dynamic: hace que un
+      .mode("overwrite") con partitionBy() solo reemplace la partición
+      del día de hoy, sin borrar el histórico de días anteriores.
     """
     minio_endpoint = get_required_env("MINIO_ENDPOINT")
     minio_access_key = get_required_env("MINIO_ACCESS_KEY")
@@ -108,40 +118,68 @@ def build_spark_session() -> SparkSession:
         .config("spark.sql.sources.partitionOverwriteMode", "dynamic")
         .getOrCreate()
     )
-    # Silencia el ruido de logs internos de Spark (deja pasar solo WARNING
-    # en adelante), para que la terminal muestre sobre todo lo que loguea
-    # este script, no el detalle interno del motor de Spark.
     spark.sparkContext.setLogLevel("WARN")
     return spark
 
 
 # ==============================================================================
-# 3. EXTRACCIÓN — DESCARGA DEL CSV CRUDO DESDE KAGGLE
+# 3. EXTRACCIÓN — DESCARGA DEL CSV CRUDO DESDE KAGGLE (CON REINTENTOS)
 # ==============================================================================
-def download_dataset() -> str:
-    """Descarga el dataset desde Kaggle vía kagglehub y devuelve la ruta
-    local del CSV ya descargado.
+def _download_with_retry() -> str:
+    """Descarga el dataset desde Kaggle con reintentos ante fallas
+    transitorias de red.
 
-    kagglehub cachea la descarga en ~/.cache/kagglehub/ — si el dataset ya
-    se había bajado antes en esta máquina, no lo vuelve a descargar, solo
-    reutiliza la copia local (por eso correr el script varias veces no
-    genera tráfico repetido a Kaggle).
+    kagglehub.dataset_download() depende de un servicio externo — puede
+    fallar por timeouts, caídas momentáneas de conexión, etc. En vez de
+    dejar que un solo fallo transitorio tumbe toda la corrida, se
+    reintenta hasta MAX_DOWNLOAD_RETRIES veces con una pausa creciente
+    entre intentos (backoff lineal: 5s, 10s).
     """
-    logger.info("Descargando dataset '%s' desde Kaggle...", KAGGLE_DATASET)
-    dataset_dir = kagglehub.dataset_download(KAGGLE_DATASET)
+    last_error: Exception | None = None
+    for attempt in range(1, MAX_DOWNLOAD_RETRIES + 1):
+        try:
+            logger.info(
+                "Descargando dataset '%s' desde Kaggle (intento %s/%s)...",
+                KAGGLE_DATASET,
+                attempt,
+                MAX_DOWNLOAD_RETRIES,
+            )
+            return kagglehub.dataset_download(KAGGLE_DATASET)
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — se relanza abajo si se agotan los intentos
+            last_error = exc
+            logger.warning(
+                "Intento %s/%s de descarga falló: %s",
+                attempt,
+                MAX_DOWNLOAD_RETRIES,
+                exc,
+            )
+            if attempt < MAX_DOWNLOAD_RETRIES:
+                time.sleep(RETRY_BACKOFF_SECONDS * attempt)
+
+    # Se agotaron los reintentos: se relanza como ConnectionError, que en
+    # main() se trata como un problema de DATOS/FUENTE (exit code 3), no
+    # como una falla inesperada genérica.
+    raise ConnectionError(
+        f"No se pudo descargar '{KAGGLE_DATASET}' tras {MAX_DOWNLOAD_RETRIES} intentos"
+    ) from last_error
+
+
+def download_dataset() -> str:
+    """Descarga el dataset (con reintentos) y devuelve la ruta local del CSV."""
+    dataset_dir = _download_with_retry()
     logger.info("Dataset descargado en: %s", dataset_dir)
 
-    # kagglehub descarga una carpeta completa, no un archivo puntual —
-    # buscamos el .csv dentro de esa carpeta, sin asumir un nombre fijo
-    # (Kaggle a veces cambia el nombre del archivo entre versiones).
+    # kagglehub descarga una carpeta completa — buscamos el .csv dentro,
+    # sin asumir un nombre fijo (Kaggle a veces cambia el nombre del
+    # archivo entre versiones del dataset).
     csv_files = [f for f in os.listdir(dataset_dir) if f.lower().endswith(".csv")]
     if not csv_files:
         raise FileNotFoundError(
             f"No se encontró ningún .csv en {dataset_dir} tras la descarga de kagglehub."
         )
     if len(csv_files) > 1:
-        # Defensivo: si el dataset trae más de un CSV, avisamos cuál se usó
-        # en vez de fallar o elegir uno al azar sin dejar rastro.
         logger.warning(
             "Se encontraron varios CSV (%s); se usará el primero: %s",
             csv_files,
@@ -158,31 +196,21 @@ def ingest(spark: SparkSession, csv_path: str, ingestion_date: str) -> None:
     a Bronze particionado por esa fecha.
 
     Bronze = capa cruda: no se limpian valores, no se renombran columnas,
-    no se filtran filas — eso es trabajo de Silver (Fase 3, t038-t043).
-    Aquí el único valor agregado es el sello de ingestion_date, que sirve
-    para trazabilidad (saber cuándo entró cada registro) y para que el
-    particionado funcione.
+    no se filtran filas — eso es trabajo de Silver (Fase 3).
     """
     logger.info("Leyendo CSV crudo desde: %s", csv_path)
-    # inferSchema=True deja que Spark detecte tipos de datos automáticamente
-    # (int, double, string, etc.) en vez de forzar todo a texto. header=True
-    # usa la primera fila del CSV como nombres de columna.
     df = spark.read.csv(csv_path, header=True, inferSchema=True)
 
     row_count = df.count()
     col_count = len(df.columns)
     logger.info("Filas leídas: %s | Columnas: %s", row_count, col_count)
 
-    # Control de calidad mínimo: si Kaggle devolviera un CSV vacío (por un
-    # problema de su lado, o una descarga corrupta), preferimos abortar acá
-    # con un error claro, en vez de escribir un Bronze vacío silenciosamente.
+    # Control de calidad mínimo: preferimos abortar acá con un error claro
+    # (ValueError, categorizado como problema de DATOS en main()) en vez
+    # de escribir un Bronze vacío silenciosamente.
     if row_count == 0:
         raise ValueError("El CSV descargado está vacío — abortando la ingesta.")
 
-    # Agrega la columna de partición: mismo valor (la fecha de hoy en UTC)
-    # para todas las filas de esta corrida. Esta columna es la que Spark
-    # usa para decidir en qué subcarpeta (ingestion_date=YYYY-MM-DD/) cae
-    # cada fila al escribir.
     df = df.withColumn("ingestion_date", lit(ingestion_date))
 
     logger.info(
@@ -190,11 +218,8 @@ def ingest(spark: SparkSession, csv_path: str, ingestion_date: str) -> None:
         BRONZE_PATH,
         ingestion_date,
     )
-    # partitionBy("ingestion_date") crea una subcarpeta por fecha dentro de
-    # BRONZE_PATH. Combinado con partitionOverwriteMode=dynamic (definido
-    # en build_spark_session), mode("overwrite") aquí SOLO reemplaza la
-    # subcarpeta de ingestion_date=<hoy>, sin tocar las de días anteriores
-    # — eso es lo que preserva el histórico.
+    # partitionBy + overwrite dinámico (config en build_spark_session):
+    # solo reemplaza la partición de HOY, preserva el histórico previo.
     df.write.mode("overwrite").partitionBy("ingestion_date").option(
         "compression", "snappy"
     ).parquet(BRONZE_PATH)
@@ -202,34 +227,42 @@ def ingest(spark: SparkSession, csv_path: str, ingestion_date: str) -> None:
 
 
 # ==============================================================================
-# 5. ORQUESTACIÓN — PUNTO DE ENTRADA Y CICLO DE VIDA DE LA SESIÓN DE SPARK
+# 5. ORQUESTACIÓN — PUNTO DE ENTRADA, CATEGORÍAS DE ERROR Y CICLO DE VIDA
 # ==============================================================================
 def main() -> None:
-    """Encadena los pasos del script (conectar → descargar → ingerir) y
-    garantiza que la sesión de Spark se cierre siempre, haya éxito o error.
+    """Encadena los pasos del script (conectar → descargar → ingerir),
+    clasifica cualquier fallo en una de 3 categorías con su propio
+    código de salida, y garantiza el cierre de Spark siempre.
     """
-    # spark se inicializa en None para que el bloque finally pueda revisar
-    # de forma segura si llegó a crearse antes de intentar spark.stop() —
-    # si build_spark_session() falla, spark nunca se sobreescribe y el
-    # finally simplemente no hace nada, en vez de tronar con un error
-    # adicional de "variable no definida".
     spark = None
+    start_time = time.monotonic()
     try:
         spark = build_spark_session()
-        # Fecha de ingesta calculada una sola vez al arrancar la corrida,
-        # en UTC para que no dependa de la zona horaria de la máquina que
-        # ejecuta el script (importante si el DAG de Airflow corre en un
-        # contenedor con otro huso horario).
         ingestion_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         csv_path = download_dataset()
         ingest(spark, csv_path, ingestion_date)
+    except RuntimeError:
+        # Problema de CONFIGURACIÓN: falta una env var de MinIO. No es un
+        # problema de los datos ni de Kaggle — hay que revisar el .env.
+        logger.exception(
+            "Configuración de entorno incompleta (revisar variables de MinIO)."
+        )
+        sys.exit(2)
+    except (FileNotFoundError, ValueError, ConnectionError):
+        # Problema de DATOS/FUENTE: CSV vacío, no encontrado, o falla
+        # persistente de conexión a Kaggle tras agotar los reintentos.
+        logger.exception("Falló la obtención o validación de los datos de origen.")
+        sys.exit(3)
     except Exception:
-        # Captura cualquier excepción no manejada en el flujo de arriba,
-        # deja el stack trace completo en el log, y sale con código 1 para
-        # que el DAG de Airflow (t033) sepa que esta tarea falló.
-        logger.exception("Falló la ingesta de Loan Default a Bronze.")
+        # Cualquier otra falla no anticipada (ej. error al escribir en
+        # MinIO/S3A): se trata como caso genérico, exit code 1.
+        logger.exception(
+            "Falló la ingesta de Loan Default a Bronze por un error inesperado."
+        )
         sys.exit(1)
     finally:
+        elapsed_seconds = time.monotonic() - start_time
+        logger.info("Duración total de la corrida: %.1f segundos", elapsed_seconds)
         if spark is not None:
             spark.stop()
 
