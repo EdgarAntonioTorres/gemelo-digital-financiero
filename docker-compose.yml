@@ -1,6 +1,4 @@
-version: "3.8"
-
-# Gemelo Digital Financiero — entorno base de desarrollo (t023)
+# Gemelo Digital Financiero — entorno base de desarrollo
 #
 # Todas las credenciales se leen desde .env (nunca hardcodeadas aquí).
 # Si falta alguna variable, Docker Compose falla al arrancar con un
@@ -17,7 +15,16 @@ version: "3.8"
 #   - airflow-webserver / airflow-scheduler : orquestación (LocalExecutor)
 
 x-airflow-common: &airflow-common
-  image: apache/airflow:2.9.3-python3.11
+  # se construye la imagen extendida (Dockerfile.airflow) en vez de
+  # usar la imagen base directamente — Airflow necesita Java + pyspark +
+  # kagglehub instalados para poder correr `spark-submit` dentro del
+  # propio contenedor (no existe un servicio `spark` separado, ver §7.1
+  # del Contexto Maestro). `image:` le da nombre/tag al resultado del
+  # build, para no reconstruir en cada `docker compose up`.
+  build:
+    context: .
+    dockerfile: Dockerfile.airflow
+  image: gemelo-digital-financiero/airflow:2.9.3-pyspark3.5.1
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER:?falta AIRFLOW_DB_USER en .env}:${AIRFLOW_DB_PASSWORD:?falta AIRFLOW_DB_PASSWORD en .env}@postgres-airflow/airflow
@@ -38,6 +45,18 @@ x-airflow-common: &airflow-common
     - ./config:/opt/airflow/config
     - ./tests:/opt/airflow/tests
     - airflow-logs:/opt/airflow/logs
+    # kagglehub (usado por los 3 scripts de ingesta) busca el token en
+    # ~/.kaggle/access_token del usuario que corre el proceso. Se monta
+    # el mismo token que ya configuraste en el host (guía de entorno
+    # local §7.1, paso 7) — nada nuevo que generar. El usuario `airflow`
+    # dentro del contenedor tiene HOME=/home/airflow.
+    # SIN :ro (corregido tras la primera corrida real, 2026-08-21):
+    # kagglehub también escribe su propio archivo de log en
+    # ~/.kaggle/logs/kagglehub.log — si el mount es de solo lectura,
+    # esa escritura falla con PermissionError (no detiene la ingesta,
+    # pero ensucia el log). Como es entorno de desarrollo local, no
+    # producción, se acepta el mount en lectura/escritura.
+    - ${HOME}/.kaggle:/home/airflow/.kaggle
   depends_on:
     postgres-airflow:
       condition: service_healthy

@@ -1,0 +1,38 @@
+# Dockerfile.airflow
+#
+# Extiende la imagen oficial de Airflow para poder correr spark-submit
+# DENTRO del propio contenedor de Airflow (modo local[*], sin clúster
+# de Spark dedicado — no existe un servicio `spark` en docker-compose.yml,
+# ver §7.1 del Contexto Maestro).
+#
+# Qué le falta a la imagen base para esto:
+#   - Java (JRE): PySpark corre sobre la JVM, sin esto spark-submit ni arranca.
+#   - pyspark: la misma versión (3.5.1) que usa el alumno en su venv local,
+#     para que el comportamiento sea idéntico entre correr el script "suelto"
+#     (guía §7.1) y correrlo orquestado por el DAG.
+#   - kagglehub: cliente de descarga que usan los 3 scripts de ingesta.
+#
+# El conector S3A (hadoop-aws:3.3.4) NO se instala aquí — se sigue
+# resolviendo vía `--packages` en el comando spark-submit del DAG,
+# igual que en la guía de entorno local. Así no hay que reconstruir la
+# imagen si cambia esa versión.
+
+FROM apache/airflow:2.9.3-python3.11
+
+# Java requiere el usuario root para instalarse vía apt.
+USER root
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends default-jre-headless procps \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/default-java
+
+# Volvemos al usuario airflow (uid 50000) antes de instalar paquetes de
+# Python — pip install como root en la imagen de Airflow rompe permisos.
+USER airflow
+
+RUN pip install --no-cache-dir \
+    pyspark==3.5.1 \
+    kagglehub==0.2.9
