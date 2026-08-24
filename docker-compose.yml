@@ -1,3 +1,5 @@
+version: "3.8"
+
 # Gemelo Digital Financiero — entorno base de desarrollo
 #
 # Todas las credenciales se leen desde .env (nunca hardcodeadas aquí).
@@ -15,7 +17,7 @@
 #   - airflow-webserver / airflow-scheduler : orquestación (LocalExecutor)
 
 x-airflow-common: &airflow-common
-  # se construye la imagen extendida (Dockerfile.airflow) en vez de
+  # Se construye la imagen extendida (Dockerfile.airflow) en vez de
   # usar la imagen base directamente — Airflow necesita Java + pyspark +
   # kagglehub instalados para poder correr `spark-submit` dentro del
   # propio contenedor (no existe un servicio `spark` separado, ver §7.1
@@ -31,6 +33,36 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__FERNET_KEY: ""
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
+    # Logging nativo de Airflow, configurado explícitamente ---
+    # Antes se dejaba en los defaults implícitos de la imagen; ahora queda
+    # declarado a propósito, para que quede documentado y sea reproducible
+    # (no depende de qué versión de Airflow decida cambiar sus defaults).
+    #
+    # LOGGING_LEVEL=INFO: mismo nivel que usan los 3 scripts de ingesta
+    # (logging.basicConfig(level=logging.INFO, ...)) — así el nivel de
+    # detalle es consistente entre lo que loguea Airflow y lo que loguea
+    # el propio spark-submit que Airflow invoca.
+    AIRFLOW__LOGGING__LOGGING_LEVEL: "INFO"
+    # FAB_LOGGING_LEVEL: nivel de log del framework web (Flask-AppBuilder)
+    # que sirve la UI — por defecto es WARNING, que puede ocultar errores
+    # de autenticación/permisos útiles al depurar. Se sube a INFO por
+    # consistencia con el resto.
+    AIRFLOW__LOGGING__FAB_LOGGING_LEVEL: "INFO"
+    # Formato explícito de las líneas de log de Airflow (scheduler,
+    # webserver, y el encabezado que Airflow antepone a cada línea de
+    # salida de las tareas). Se elige un formato con timestamp+nivel+
+    # logger+mensaje que es legible junto a las líneas que ya imprimen
+    # los propios scripts de ingesta (mismo estilo, no idéntico byte a
+    # byte porque Airflow no permite quitar sus propios campos internos
+    # como %(dag_id)s de este formato).
+    AIRFLOW__LOGGING__LOG_FORMAT: "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"
+    # MAX_LOG_AGE_IN_DAYS: el proceso de limpieza nativo de Airflow
+    # (airflow-scheduler corre esto automáticamente) borra logs de tareas
+    # con más de 15 días. Sin esto, el volumen `airflow-logs` crece sin
+    # límite mientras dure el proyecto. 15 días es más que suficiente
+    # para un entorno de desarrollo donde las corridas se revisan a los
+    # pocos días de ejecutadas, no semanas después.
+    AIRFLOW__LOGGING__MAX_LOG_AGE_IN_DAYS: "15"
     # Credenciales / endpoints que consumen los DAGs y jobs de Spark:
     MINIO_ENDPOINT: http://minio:9000
     MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?falta MINIO_ROOT_USER en .env}
