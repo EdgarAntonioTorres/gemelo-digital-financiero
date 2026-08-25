@@ -6,6 +6,32 @@ sin transformaciones de negocio, a la capa Bronze en MinIO en
 formato Parquet, particionado por fecha de ingesta, con
 reintentos y manejo de errores por categoría.
 
+Trazabilidad de los datos crudos (t036):
+Cada fila escrita a Bronze queda sellada con 3 columnas de metadata,
+además de `ingestion_date` (que ya existía para el particionado):
+  - `ingestion_timestamp`: momento exacto (UTC, con hora) de la corrida,
+    a diferencia de `ingestion_date` que solo tiene granularidad de día
+    y no distingue dos corridas manuales el mismo día.
+  - `source_file`: nombre del .csv real descargado de Kaggle en esa
+    corrida — útil si Kaggle cambia el nombre del archivo entre
+    versiones del dataset.
+  - `dag_run_id`: identificador de la corrida de Airflow que produjo
+    la fila (`{{ run_id }}`, inyectado por el DAG vía variable de
+    entorno `AIRFLOW_RUN_ID`). En corridas standalone (fuera de
+    Airflow, ver "Uso standalone" abajo) esta variable no existe y el
+    valor cae a `"manual"` por defecto — así una fila siempre indica de
+    dónde vino, sin que el script dependa de correr dentro de Airflow.
+
+Inmutabilidad de los datos crudos (t036):
+El particionado por `ingestion_date` + overwrite dinámico (ver abajo)
+ya garantiza que una corrida nunca puede tocar la partición de un día
+anterior — `ingestion_date` siempre se calcula como la fecha actual de
+la corrida, nunca es un parámetro externo. Cada partición de día,
+una vez escrita, es de solo lectura para el resto del ciclo de vida
+del pipeline (la única excepción es re-correr el pipeline el MISMO
+día, lo cual sobrescribe intencionalmente esa partición para mantener
+idempotencia — validado en `t035`).
+
 Por qué particionar por fecha:
 Antes cada corrida hacía overwrite sobre TODO el path de Bronze, así que
 si corrías el script dos días distintos, el segundo día borraba lo que
@@ -191,14 +217,25 @@ def download_dataset() -> str:
 # ==============================================================================
 # 4. INGESTA — LECTURA, SELLADO DE FECHA Y ESCRITURA PARTICIONADA A BRONZE
 # ==============================================================================
-def ingest(spark: SparkSession, csv_path: str, ingestion_date: str) -> None:
-    """Lee el CSV crudo, le agrega la columna ingestion_date, y lo escribe
-    a Bronze particionado por esa fecha.
+def ingest(
+    spark: SparkSession,
+    csv_path: str,
+    ingestion_date: str,
+    ingestion_timestamp: str,
+    source_file: str,
+    dag_run_id: str,
+) -> None:
+    """Lee el CSV crudo, le agrega las columnas de trazabilidad
+    (`ingestion_date`, `ingestion_timestamp`, `source_file`, `dag_run_id`)
+    y lo escribe a Bronze particionado por fecha.
 
     Bronze = capa cruda: no se limpian valores, no se renombran columnas,
     no se filtran filas — eso es trabajo de Silver (Fase 3).
     En particular, el outlier extremo de `income` que se detectó
-    NO se toca aquí a propósito.
+    NO se toca aquí a propósito. Las columnas de trazabilidad son la
+    única metadata agregada aquí (ver docstring del módulo, `t036`), y
+    son deliberadamente aditivas: no tocan ni reinterpretan ninguna
+    columna original del dataset.
     """
     logger.info("Leyendo CSV crudo desde: %s", csv_path)
     df = spark.read.csv(csv_path, header=True, inferSchema=True)
@@ -213,7 +250,16 @@ def ingest(spark: SparkSession, csv_path: str, ingestion_date: str) -> None:
     if row_count == 0:
         raise ValueError("El CSV descargado está vacío — abortando la ingesta.")
 
-    df = df.withColumn("ingestion_date", lit(ingestion_date))
+    # Metadata de trazabilidad (t036) — ver docstring del módulo.
+    # ingestion_date sigue siendo la columna de particionado (sin cambios);
+    # las otras 3 son aditivas y no particionan, para no fragmentar Bronze
+    # en particiones minúsculas por segundo/run.
+    df = (
+        df.withColumn("ingestion_date", lit(ingestion_date))
+        .withColumn("ingestion_timestamp", lit(ingestion_timestamp))
+        .withColumn("source_file", lit(source_file))
+        .withColumn("dag_run_id", lit(dag_run_id))
+    )
 
     logger.info(
         "Escribiendo a Bronze en: %s (partición ingestion_date=%s)",
@@ -240,9 +286,22 @@ def main() -> None:
     start_time = time.monotonic()
     try:
         spark = build_spark_session()
-        ingestion_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        now_utc = datetime.now(timezone.utc)
+        ingestion_date = now_utc.strftime("%Y-%m-%d")
+        ingestion_timestamp = now_utc.isoformat()
+        # Inyectado por el DAG vía env var (t036); "manual" cuando el
+        # script corre standalone fuera de Airflow (ver docstring).
+        dag_run_id = os.environ.get("AIRFLOW_RUN_ID", "manual")
         csv_path = download_dataset()
-        ingest(spark, csv_path, ingestion_date)
+        source_file = os.path.basename(csv_path)
+        ingest(
+            spark,
+            csv_path,
+            ingestion_date,
+            ingestion_timestamp,
+            source_file,
+            dag_run_id,
+        )
     except RuntimeError:
         # Problema de CONFIGURACIÓN: falta una env var de MinIO. No es un
         # problema de los datos ni de Kaggle — hay que revisar el .env.
