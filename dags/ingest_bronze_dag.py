@@ -50,10 +50,18 @@ Reintentos a dos niveles (deliberado, no redundante):
   contenedor). Si el script termina con exit code distinto de 0 por
   cualquier motivo, Airflow reintenta la tarea completa.
 
+Trazabilidad (t036):
+Cada comando spark-submit se antecede de `AIRFLOW_RUN_ID='{{ run_id }}'`
+— Jinja templating nativo de BashOperator sobre `bash_command`, sin
+tocar `env` (que reemplazaría el resto del entorno heredado, ver
+`spark_submit_command()`). Cada script de ingesta ya sabe leer esta
+variable y sellar cada fila de Bronze con ella (ver docstring de
+`ingest_loan_default.py` y análogos) — así cualquier fila de Bronze se
+puede rastrear de vuelta a la corrida exacta del DAG que la escribió.
+
 Alcance (deliberadamente no incluido, corresponde a otras tareas):
 - configurar logging nativo de Airflow (más allá del default).
 - probar ejecución manual + validar idempotencia end-to-end.
-- confirmar inmutabilidad/trazabilidad de los datos crudos.
 """
 
 from datetime import datetime, timedelta
@@ -85,8 +93,19 @@ default_args = {
 def spark_submit_command(script_filename: str) -> str:
     """Arma el comando spark-submit para un script de ingesta, idéntico
     al que se corre a mano según la guía de entorno local (§7.1),
-    salvo la ruta (dentro del contenedor en vez del host)."""
+    salvo la ruta (dentro del contenedor en vez del host) y la variable
+    AIRFLOW_RUN_ID antepuesta (t036, trazabilidad).
+
+    Se antepone la variable directamente en el string del comando (en
+    vez de usar el parámetro `env=` de BashOperator) a propósito: `env=`
+    reemplaza TODO el entorno del proceso hijo en vez de extenderlo, lo
+    que rompería MINIO_ENDPOINT/MINIO_ACCESS_KEY/MINIO_SECRET_KEY que
+    los scripts necesitan (heredadas del entorno del contenedor de
+    Airflow, ver docker-compose.yml). `{{ run_id }}` es Jinja nativo de
+    Airflow sobre `bash_command` — no hace falta declarar `template_fields`.
+    """
     return (
+        f"AIRFLOW_RUN_ID='{{{{ run_id }}}}' "
         f"spark-submit --packages {SPARK_PACKAGES} "
         f"{SPARK_SCRIPTS_DIR}/{script_filename}"
     )
