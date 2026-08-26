@@ -50,7 +50,7 @@ Reintentos a dos niveles (deliberado, no redundante):
   contenedor). Si el script termina con exit code distinto de 0 por
   cualquier motivo, Airflow reintenta la tarea completa.
 
-Trazabilidad (t036):
+Trazabilidad:
 Cada comando spark-submit se antecede de `AIRFLOW_RUN_ID='{{ run_id }}'`
 — Jinja templating nativo de BashOperator sobre `bash_command`, sin
 tocar `env` (que reemplazaría el resto del entorno heredado, ver
@@ -76,7 +76,7 @@ SPARK_PACKAGES = "org.apache.hadoop:hadoop-aws:3.3.4"
 
 # Ruta dentro del contenedor de Airflow: docker-compose.yml monta
 # ./src del repo en /opt/airflow/src (ver x-airflow-common → volumes).
-SPARK_SCRIPTS_DIR = "/opt/airflow/src/spark"
+SPARK_SCRIPTS_DIR = "/opt/airflow/src/spark/ingestion"
 
 default_args = {
     "owner": "gemelo-digital-financiero",
@@ -94,7 +94,7 @@ def spark_submit_command(script_filename: str) -> str:
     """Arma el comando spark-submit para un script de ingesta, idéntico
     al que se corre a mano según la guía de entorno local (§7.1),
     salvo la ruta (dentro del contenedor en vez del host) y la variable
-    AIRFLOW_RUN_ID antepuesta (t036, trazabilidad).
+    AIRFLOW_RUN_ID antepuesta (trazabilidad).
 
     Se antepone la variable directamente en el string del comando (en
     vez de usar el parámetro `env=` de BashOperator) a propósito: `env=`
