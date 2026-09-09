@@ -1,5 +1,5 @@
 """
-Utilidad de diagnóstico (insumo para diseñar t038, no es t038 en sí):
+Utilidad de diagnóstico:
 imprime el schema real (columna -> tipo inferido por Spark) de cada
 fuente en Bronze, leyendo solo la partición de HOY para no pagar el
 costo de leer 5 días de historial.

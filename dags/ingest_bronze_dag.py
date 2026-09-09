@@ -34,13 +34,6 @@ descarga inicial del `.jar`; las siguientes ya lo encuentran cacheado
 y resuelto. El orden entre ellas no importa (no hay dependencia de
 datos real) — se eligió alfabético/de creación por simplicidad.
 
-Por qué las 3 tareas van en paralelo (sin dependencias entre ellas):
-Loan Default, Credit Risk y Personal Finance Tracker son fuentes
-independientes entre sí — ninguna depende del resultado de otra para
-escribir su propia partición de Bronze. No hay ninguna razón de
-negocio para forzar un orden secuencial, y correrlas en paralelo
-reduce el tiempo total del DAG.
-
 Reintentos a dos niveles (deliberado, no redundante):
 - Dentro del script: 3 reintentos con backoff SOLO para la descarga de
   Kaggle (la parte más expuesta a fallas transitorias de red).
