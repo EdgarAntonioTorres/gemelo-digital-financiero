@@ -22,14 +22,14 @@ Tipado correcto (timestamps, decimales):
      más pequeños — se usa `DecimalType(10, 4)` en vez de `DecimalType(18, 2)`.
 
 No se tocan en `apply_typing()` (resuelto por las funciones de más abajo,
-agregadas en esta misma sesión — t039-t043):
-  - Deduplicación exacta de filas → `deduplicate()` (t039).
-  - Nulos de `dtir1` (16% en Loan Default) → `impute_dtir1_by_group()` (t040).
+agregadas en esta misma sesión):
+  - Deduplicación exacta de filas → `deduplicate()`.
+  - Nulos de `dtir1` (16% en Loan Default) → `impute_dtir1_by_group()`.
   - Outliers de `person_income`/`income` (~90x la media) →
-    `cap_income_outliers()` (t041).
+    `cap_income_outliers()`.
   - Segmentación <30 años y `age` sintética (Personal Finance Tracker) →
-    `derive_synthetic_age()` (t042/t110).
-  - Unificación de esquema al dataset maestro → `unify_*_schema()` (t043).
+    `derive_synthetic_age()`.
+  - Unificación de esquema al dataset maestro → `unify_*_schema()`.
 
 Sigue sin tocarse (fuera de alcance de este módulo):
   - Bins de `age` en Loan Default (categórico por diseño del dataset,
@@ -38,7 +38,7 @@ Sigue sin tocarse (fuera de alcance de este módulo):
     maestro (5.2.2 del Contexto Maestro). Aquí se tipan igual
     porque siguen existiendo en Bronze/Silver por fuente.
 
-Convención de columnas de flag agregadas en este módulo (t040/t041):
+Convención de columnas de flag agregadas en este módulo:
 todas son booleanas, indican "este valor fue tocado/derivado por el
 pipeline" (`True`) vs. "es el valor original" (`False`) — nunca se
 imputa/recorta en silencio (mismo principio que `age_synthetic_flag`
@@ -159,10 +159,10 @@ def apply_typing(df: DataFrame, source_name: str) -> DataFrame:
 
 
 # ==============================================================================
-# t039 — Deduplicación
+# Deduplicación
 # ==============================================================================
 
-# Columnas de trazabilidad (t036): se excluyen al comparar filas porque
+# Columnas de trazabilidad: se excluyen al comparar filas porque
 # la MISMA fila de negocio, ingerida en corridas distintas del DAG
 # (`ingest_bronze_pipeline`, @daily), trae un `ingestion_timestamp` y
 # `dag_run_id` distintos aunque el dato real no haya cambiado. Sin
@@ -173,7 +173,7 @@ TRACE_COLUMNS = {"ingestion_date", "ingestion_timestamp", "source_file", "dag_ru
 def deduplicate(df: DataFrame) -> DataFrame:
     """Elimina filas 100% idénticas, ignorando las columnas de trazabilidad.
 
-    Decisión (sesión de t039-t043): duplicado = fila idéntica en TODAS
+    Decisión: duplicado = fila idéntica en TODAS
     las columnas de negocio. Cubre el caso esperado del DAG `@daily`
     reingiriendo el mismo dataset fuente día tras día — misma
     información, corrida distinta.
@@ -183,22 +183,26 @@ def deduplicate(df: DataFrame) -> DataFrame:
 
 
 # ==============================================================================
-# t040 — Nulos de `dtir1` (Loan Default, 16% del dataset)
+# Nulos de `dtir1` (Loan Default, 16% del dataset)
 # ==============================================================================
-def impute_dtir1_by_group(
-    df: DataFrame, group_col: str = "loan_type", target_col: str = "dtir1"
+def impute_numeric_by_group(
+    df: DataFrame, group_col: str, target_col: str
 ) -> DataFrame:
-    """Imputa los nulos de `dtir1` con la mediana del grupo (`loan_type`
-    por defecto), marcando cada fila tocada con `dtir1_imputed_flag`.
+    """Imputa los nulos de `target_col` con la mediana del grupo
+    (`group_col`), marcando cada fila tocada con `{target_col}_imputed_flag`.
 
-    Por qué mediana y no promedio: `dtir1` es un ratio (deuda/ingreso)
-    con cola larga esperable — la mediana es más robusta a esa asimetría.
-    Por qué por grupo y no global: asume que el nivel de endeudamiento
-    típico varía por tipo de préstamo, en vez de imponer un único valor
-    "típico" a todo el dataset.
-    Fallback: si un grupo entero queda sin ningún valor no-nulo (caso
-    borde, no esperado con los datos actuales), se usa la mediana global
-    como respaldo para no dejar nulos residuales.
+    Genérica desde el inicio (antes se llamaba `impute_dtir1_by_group`,
+    renombrada en `t054`/Sesión 26 al reutilizarla para `rate_of_interest`
+    y `loan_int_rate` — el cuerpo no cambió).
+
+    Por qué mediana y no promedio: las columnas que alimenta (`dtir1`,
+    tasas de interés) son ratios con cola larga esperable — la mediana
+    es más robusta a esa asimetría.
+    Por qué por grupo y no global: asume que el valor típico varía por
+    categoría (tipo de préstamo, grado de riesgo), en vez de imponer un
+    único valor "típico" a todo el dataset.
+    Fallback: si un grupo entero queda sin ningún valor no-nulo, se usa
+    la mediana global como respaldo para no dejar nulos residuales.
     """
     flag_col = f"{target_col}_imputed_flag"
     df = df.withColumn(flag_col, col(target_col).isNull())
@@ -220,8 +224,34 @@ def impute_dtir1_by_group(
     return df
 
 
+def impute_numeric_global(df: DataFrame, target_col: str) -> DataFrame:
+    """Imputa los nulos de `target_col` con la mediana global (sin
+    agrupador), marcando cada fila tocada con `{target_col}_imputed_flag`.
+
+    Uso: cuando no hay una columna categórica claramente correlacionada
+    con `target_col` en esa fuente (`t054`/Sesión 26: `person_emp_length`
+    en Credit Risk — ninguna columna disponible se relaciona con
+    antigüedad laboral lo bastante como para justificar un agrupador,
+    a diferencia de `loan_type`→`rate_of_interest` o
+    `loan_grade`→`loan_int_rate`, donde sí hay una relación clara).
+    """
+    flag_col = f"{target_col}_imputed_flag"
+    df = df.withColumn(flag_col, col(target_col).isNull())
+
+    global_median = df.agg(
+        expr(f"percentile_approx({target_col}, 0.5)").alias("_global_median")
+    ).collect()[0]["_global_median"]
+
+    return df.withColumn(
+        target_col,
+        when(col(target_col).isNotNull(), col(target_col)).otherwise(
+            lit(global_median)
+        ),
+    )
+
+
 # ==============================================================================
-# t041 — Outliers de ingreso (`person_income` en Credit Risk,
+# Outliers de ingreso (`person_income` en Credit Risk,
 #         `income` en Loan Default)
 # ==============================================================================
 def cap_income_outliers(
@@ -236,8 +266,8 @@ def cap_income_outliers(
     filas de Credit Risk pesa más porque es la fuente que el proyecto
     pondera especialmente para usuarios <30 años. El valor SÍ se
     modifica (no solo se marca) porque `income_col` alimenta
-    `income_monthly_norm` (t043) y, si se usa directo como feature en
-    el modelo (`t062`-`t064`), un valor 90x la media distorsiona
+    `income_monthly_norm` y, si se usa directo como feature en
+    el modelo, un valor 90x la media distorsiona
     cualquier escala/normalización que dependa de él.
     """
     flag_col = f"{income_col}_outlier_flag"
@@ -254,7 +284,7 @@ def cap_income_outliers(
 
 
 # ==============================================================================
-# t042/t110 — Segmentación <30 años y `age` sintética
+# Segmentación <30 años y `age` sintética
 #             (Personal Finance Tracker — único dataset sin `age` nativa)
 # ==============================================================================
 
@@ -385,7 +415,7 @@ def derive_synthetic_age(df: DataFrame) -> DataFrame:
 
 
 # ==============================================================================
-# t043 — Unificación de esquema al dataset maestro
+# Unificación de esquema al dataset maestro
 # ==============================================================================
 
 # Tabla ordinal de loan_grade (Credit Risk): A=mejor -> G=peor.
@@ -401,7 +431,7 @@ def _add_record_id(df: DataFrame, prefix: str) -> DataFrame:
     (Contexto Maestro §5.2/§t043), el `record_id` solo da trazabilidad
     al origen, no identidad real entre fuentes.
 
-    CORRECCIÓN (hallazgo de la sesión de verificación t039-t043,
+    CORRECCIÓN (hallazgo de la sesión de verificación,
     segunda vuelta): la primera versión usaba
     `row_number().over(Window.orderBy(monotonically_increasing_id()))`.
     Se veía razonable y hasta pasaba una revisión superficial, pero es
@@ -435,10 +465,18 @@ def _add_record_id(df: DataFrame, prefix: str) -> DataFrame:
     return df
 
 
-def unify_loan_default_schema(df: DataFrame) -> DataFrame:
-    """Mapea Loan Default (ya limpio: t039-t041) a las 5 columnas del
-    dataset maestro, según la tabla de Contexto Maestro §5.2."""
-    df = _add_record_id(df, "LD")
+def unify_loan_default_schema(df_indexed: DataFrame) -> DataFrame:
+    """Mapea Loan Default (ya limpio) a las 5 columnas del dataset
+    maestro, según la tabla de Contexto Maestro §5.2.
+
+    IMPORTANTE (Sesión 26, Contexto Maestro §6.2.1): `df_indexed` debe
+    llegar YA con `record_id` (vía `_add_record_id`, llamado una sola
+    vez por el caller). No se genera aquí adentro para evitar que
+    `select_kpi_components_loan_default()` reciba un `record_id`
+    distinto para la misma fila física — `zipWithIndex()` no garantiza
+    el mismo orden entre dos llamadas/lecturas separadas.
+    """
+    df = df_indexed
     df = _min_max_normalize(df, "Credit_Score", "credit_score_norm")
     return df.select(
         "record_id",
@@ -455,10 +493,14 @@ def unify_loan_default_schema(df: DataFrame) -> DataFrame:
     )
 
 
-def unify_credit_risk_schema(df: DataFrame) -> DataFrame:
-    """Mapea Credit Risk (ya limpio: t039, t041) a las 5 columnas del
-    dataset maestro, según la tabla de Contexto Maestro §5.2."""
-    df = _add_record_id(df, "CR")
+def unify_credit_risk_schema(df_indexed: DataFrame) -> DataFrame:
+    """Mapea Credit Risk (ya limpio) a las 5 columnas del dataset
+    maestro, según la tabla de Contexto Maestro §5.2.
+
+    IMPORTANTE (Sesión 26, §6.2.1): `df_indexed` debe llegar ya con
+    `record_id` — ver nota idéntica en `unify_loan_default_schema`.
+    """
+    df = df_indexed
 
     grade_map = expr(
         "CASE loan_grade "
@@ -480,10 +522,14 @@ def unify_credit_risk_schema(df: DataFrame) -> DataFrame:
     )
 
 
-def unify_pft_schema(df: DataFrame) -> DataFrame:
+def unify_pft_schema(df_indexed: DataFrame) -> DataFrame:
     """Mapea Personal Finance Tracker (ya limpio y con `age` sintética
-    de `derive_synthetic_age()`) a las 5 columnas del dataset maestro."""
-    df = _add_record_id(df, "PFT")
+    de `derive_synthetic_age()`) a las 5 columnas del dataset maestro.
+
+    IMPORTANTE (Sesión 26, §6.2.1): `df_indexed` debe llegar ya con
+    `record_id` — ver nota idéntica en `unify_loan_default_schema`.
+    """
+    df = df_indexed
     df = _min_max_normalize(df, "credit_score", "credit_score_norm")
     return df.select(
         "record_id",
@@ -498,6 +544,91 @@ def unify_pft_schema(df: DataFrame) -> DataFrame:
         # cualitativo, fusionarlo inventaría una equivalencia que los
         # datos no sostienen).
         lit(None).cast("double").alias("default_flag_unificada"),
+    )
+
+
+# ==============================================================================
+# Componentes crudos para IRFI/ICA por fuente — Contexto Maestro §6.2.1
+# (Sesión 26)
+#
+# Las fórmulas de IRFI/ICA se diseñaron sobre columnas
+# nativas de Credit Risk. Al extender el dataset maestro a 3 fuentes,
+# se decidió NO modificar las fórmulas (ya aprobadas por el
+# mentor BBVA el 2026-08-11) sino extender su aplicación vía proxies
+# documentados — mismo criterio ya usado en `credit_score_norm` (§5.2).
+#
+# Estas funciones reciben el MISMO DataFrame ya indexado con
+# `record_id` que produce la fila del maestro (nunca una segunda
+# lectura/llamada independiente — ver nota de riesgo en
+# `unify_loan_default_schema` sobre por qué `zipWithIndex()` no
+# garantiza el mismo orden entre dos corridas separadas). Solo exponen
+# las columnas fuente con nombres neutros; la derivación completa
+# (normalización, mapeo a peso neutro cuando no hay proxy razonable)
+# vive en `calculate_kpis.py`, no aquí — este módulo es de limpieza
+# Silver, no de cálculo de KPI de Gold.
+# ==============================================================================
+
+# Mapeo ordinal income_type -> estabilidad laboral (0-1), Personal
+# Finance Tracker. Confirmado con value_counts() real (Sesión 26):
+# Salary=2154, Freelance=529, Mixed=317. Salario fijo = más estable;
+# freelance = menos estable; mixto = punto medio.
+INCOME_TYPE_STABILITY = {"Salary": 1.0, "Mixed": 0.5, "Freelance": 0.0}
+
+# Mapeo Neg_ammortization -> flag (Loan Default). Confirmado con
+# value_counts() real (Sesión 26): 89.74% not_neg, 10.18% neg_amm,
+# 0.08% NaN (121 filas) — variabilidad real (10%), NO se descarta como
+# ruido/casi-constante (hipótesis inicial descartada con datos reales).
+# La columna sigue fuera del núcleo del dataset maestro (§5.2.2,
+# consistente) pero se reincorpora, ya tipada, solo para
+# este cálculo de KPI — mismo patrón que las columnas de §5.2.1.
+NEG_AMORTIZATION_FLAG_MAP = {"neg_amm": 1.0, "not_neg": 0.0}
+
+
+def select_kpi_components_credit_risk(df_indexed: DataFrame) -> DataFrame:
+    """Columnas crudas de Credit Risk necesarias para IRFI/ICA.
+
+    No incluye un proxy de `grade_score`: para Credit Risk, ese
+    componente se toma directo de `credit_score_norm` del maestro (ya
+    es la normalización de `loan_grade`, calcularlo de nuevo aquí
+    sería redundante) — ver `calculate_kpis.py`.
+    """
+    return df_indexed.select(
+        "record_id",
+        col("person_emp_length").alias("_emp_raw"),
+        col("cb_person_cred_hist_length").alias("_credit_hist_raw"),
+        col("loan_int_rate").alias("_interest_rate_raw"),
+        col("person_home_ownership").alias("_housing_raw"),
+    )
+
+
+def select_kpi_components_loan_default(df_indexed: DataFrame) -> DataFrame:
+    """Columnas crudas de Loan Default necesarias para IRFI/ICA.
+
+    Sin proxy razonable para `emp_stability`/`grade_score`/
+    `credit_hist_norm`/`housing_penalty` (§6.2.1) — se ponderan neutro
+    en `calculate_kpis.py`, no se exponen aquí.
+    """
+    return df_indexed.select(
+        "record_id",
+        col("rate_of_interest").alias("_interest_rate_raw"),
+        col("Neg_ammortization").alias("_neg_amortization_raw"),
+    )
+
+
+def select_kpi_components_pft(df_indexed: DataFrame) -> DataFrame:
+    """Columnas crudas de Personal Finance Tracker necesarias para
+    IRFI/ICA.
+
+    Sin proxy razonable para `credit_hist_norm`/`loan_int_rate_norm`
+    (PFT no es un dataset de préstamos) ni para `grade_score`
+    (usar `credit_score_norm` violaría la exclusión deliberada de
+    `Credit_Score`/`credit_score` en IRFI, §6.2 — corregido en
+    Sesión 26, no se expone aquí).
+    """
+    return df_indexed.select(
+        "record_id",
+        col("income_type").alias("_income_type_raw"),
+        col("rent_or_mortgage").alias("_rent_or_mortgage_raw"),
     )
 
 

@@ -45,6 +45,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 SILVER_LOAN_DEFAULT = "s3a://silver/loan_default/"
+SILVER_CREDIT_RISK = "s3a://silver/credit_risk/"
 SILVER_PFT = "s3a://silver/personal_finance_tracker/"
 SILVER_MASTER = "s3a://silver/master/"
 
@@ -123,6 +124,26 @@ def check_dtir1_no_nulls(spark, fallos: list[str]) -> None:
     logger.info("Chequeo nulos residuales en dtir1: %s", nulos)
 
 
+def check_kpi_raw_columns_no_nulls(spark, fallos: list[str]) -> None:
+    """6. Sin nulos residuales en las columnas crudas que alimentan los
+    proxies de IRFI/ICA (t054, Sesión 26) — rate_of_interest
+    (loan_default), loan_int_rate y person_emp_length (credit_risk)."""
+    checks = [
+        (SILVER_LOAN_DEFAULT, "loan_default", "rate_of_interest"),
+        (SILVER_CREDIT_RISK, "credit_risk", "loan_int_rate"),
+        (SILVER_CREDIT_RISK, "credit_risk", "person_emp_length"),
+    ]
+    for path, fuente, columna in checks:
+        df = spark.read.parquet(path)
+        nulos = df.filter(col(columna).isNull()).count()
+        if nulos > 0:
+            fallos.append(
+                f"{fuente}: quedan {nulos} nulos en {columna} tras la "
+                "imputación (t054)."
+            )
+        logger.info("Chequeo nulos residuales en %s (%s): %s", columna, fuente, nulos)
+
+
 def check_age_ranges(spark, fallos: list[str]) -> None:
     """4. age sintética (PFT) debe caer en 20-29 (early_career) o
     30-60 (established), sin excepción."""
@@ -194,6 +215,7 @@ def main() -> None:
         check_record_id_unique(df_master, fallos)
         check_record_id_format(df_master, fallos)
         check_dtir1_no_nulls(spark, fallos)
+        check_kpi_raw_columns_no_nulls(spark, fallos)
         check_age_ranges(spark, fallos)
         check_default_flag_null_only_pft(df_master, fallos)
 

@@ -41,7 +41,7 @@ from silver_transformations import (
     apply_typing,
     cap_income_outliers,
     deduplicate,
-    impute_dtir1_by_group,
+    impute_numeric_by_group,
 )
 
 BRONZE_PATH = "s3a://bronze/loan_default/"
@@ -108,9 +108,20 @@ def main() -> None:
             row_count_bronze - row_count_deduped,
         )
 
-        df = impute_dtir1_by_group(df, group_col="loan_type", target_col="dtir1")
+        df = impute_numeric_by_group(df, group_col="loan_type", target_col="dtir1")
         imputed_count = df.filter(df.dtir1_imputed_flag).count()
         logger.info("dtir1 imputados: %s filas", imputed_count)
+
+        # t054 (Sesión 26): rate_of_interest no se imputaba porque nadie
+        # la necesitaba hasta calculate_kpis.py (proxy de loan_int_rate_norm
+        # para IRFI, §6.2.1) — 24.5% de nulos confirmados, distribuidos
+        # parejo entre loan_type (22.7%-33.8%, ningún grupo concentra
+        # el faltante), mismo agrupador ya validado para dtir1.
+        df = impute_numeric_by_group(
+            df, group_col="loan_type", target_col="rate_of_interest"
+        )
+        rate_imputed_count = df.filter(df.rate_of_interest_imputed_flag).count()
+        logger.info("rate_of_interest imputados: %s filas", rate_imputed_count)
 
         df = cap_income_outliers(df, income_col="income", percentile=0.99)
         capped_count = df.filter(df.income_outlier_flag).count()
