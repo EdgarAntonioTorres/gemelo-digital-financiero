@@ -10,7 +10,7 @@ las une (UNION, apiladas por fila) en un único dataset maestro con
 `record_id` sintético prefijado por fuente.
 
 Por qué UNION y no JOIN: no existe una llave real entre las 3 fuentes
-(§5.2/§t043) — la "unión" del proyecto es conceptual (por segmento de
+la "unión" del proyecto es conceptual (por segmento de
 comportamiento), no por identidad de persona. Cada fila del maestro
 sigue perteneciendo a una sola fuente original; `record_id` da
 trazabilidad al origen, no una identidad cruzada.
@@ -52,6 +52,7 @@ from pyspark.sql import SparkSession
 
 from silver_transformations import (
     _add_record_id,
+    select_comportamiento_components_pft,
     select_kpi_components_credit_risk,
     select_kpi_components_loan_default,
     select_kpi_components_pft,
@@ -76,6 +77,10 @@ DIM_PATHS = {
     "loan_default": "s3a://silver/dim_perfil_loan_default/",
     "personal_finance_tracker": "s3a://silver/dim_perfil_pft/",
 }
+
+# Sub-dimensión de comportamiento (Sesión 27): solo PFT,
+# columnas crudas para FACT_COMPORTAMIENTO — ver silver_transformations.py.
+DIM_COMPORTAMIENTO_PFT_PATH = "s3a://silver/dim_comportamiento_pft/"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -148,6 +153,7 @@ def main() -> None:
         )
         df_pft_unified = unify_pft_schema(df_pft_indexed)
         df_pft_kpi = select_kpi_components_pft(df_pft_indexed)
+        df_pft_comportamiento = select_comportamiento_components_pft(df_pft_indexed)
 
         # unionByName (no union() posicional): más seguro ante cualquier
         # cambio futuro en el orden de columnas de un unify_*_schema().
@@ -178,6 +184,14 @@ def main() -> None:
             DIM_PATHS["personal_finance_tracker"]
         )
         logger.info("Sub-dimensiones de KPI completadas.")
+
+        logger.info(
+            "Escribiendo sub-dimensión de comportamiento (DIM_COMPORTAMIENTO_PFT)..."
+        )
+        df_pft_comportamiento.write.mode("overwrite").option(
+            "compression", "snappy"
+        ).parquet(DIM_COMPORTAMIENTO_PFT_PATH)
+        logger.info("Sub-dimensión de comportamiento completada.")
     except Exception:
         logger.exception("Falló la construcción del dataset maestro.")
         sys.exit(1)

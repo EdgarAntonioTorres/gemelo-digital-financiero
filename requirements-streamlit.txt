@@ -1,0 +1,7 @@
+# Dependencias del dashboard de calidad (t048/t049).
+# Separado de requirements.txt a propósito: este contenedor no
+# necesita PySpark ni kagglehub, y cargarlos aquí solo agregaría
+# tamaño de imagen sin ningún beneficio.
+streamlit==1.38.0
+psycopg2-binary==2.9.9
+pandas==2.2.2

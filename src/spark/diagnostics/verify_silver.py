@@ -126,7 +126,7 @@ def check_dtir1_no_nulls(spark, fallos: list[str]) -> None:
 
 def check_kpi_raw_columns_no_nulls(spark, fallos: list[str]) -> None:
     """6. Sin nulos residuales en las columnas crudas que alimentan los
-    proxies de IRFI/ICA (t054, Sesión 26) — rate_of_interest
+    proxies de IRFI/ICA (Sesión 26) — rate_of_interest
     (loan_default), loan_int_rate y person_emp_length (credit_risk)."""
     checks = [
         (SILVER_LOAN_DEFAULT, "loan_default", "rate_of_interest"),
@@ -138,8 +138,7 @@ def check_kpi_raw_columns_no_nulls(spark, fallos: list[str]) -> None:
         nulos = df.filter(col(columna).isNull()).count()
         if nulos > 0:
             fallos.append(
-                f"{fuente}: quedan {nulos} nulos en {columna} tras la "
-                "imputación (t054)."
+                f"{fuente}: quedan {nulos} nulos en {columna} tras la " "imputación."
             )
         logger.info("Chequeo nulos residuales en %s (%s): %s", columna, fuente, nulos)
 

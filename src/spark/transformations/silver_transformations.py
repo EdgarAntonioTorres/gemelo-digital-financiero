@@ -192,7 +192,7 @@ def impute_numeric_by_group(
     (`group_col`), marcando cada fila tocada con `{target_col}_imputed_flag`.
 
     Genérica desde el inicio (antes se llamaba `impute_dtir1_by_group`,
-    renombrada en `t054`/Sesión 26 al reutilizarla para `rate_of_interest`
+    renombrada en `t054b`/Sesión 26 al reutilizarla para `rate_of_interest`
     y `loan_int_rate` — el cuerpo no cambió).
 
     Por qué mediana y no promedio: las columnas que alimenta (`dtir1`,
@@ -229,7 +229,7 @@ def impute_numeric_global(df: DataFrame, target_col: str) -> DataFrame:
     agrupador), marcando cada fila tocada con `{target_col}_imputed_flag`.
 
     Uso: cuando no hay una columna categórica claramente correlacionada
-    con `target_col` en esa fuente (`t054`/Sesión 26: `person_emp_length`
+    con `target_col` en esa fuente (`t054b`/Sesión 26: `person_emp_length`
     en Credit Risk — ninguna columna disponible se relaciona con
     antigüedad laboral lo bastante como para justificar un agrupador,
     a diferencia de `loan_type`→`rate_of_interest` o
@@ -629,6 +629,43 @@ def select_kpi_components_pft(df_indexed: DataFrame) -> DataFrame:
         "record_id",
         col("income_type").alias("_income_type_raw"),
         col("rent_or_mortgage").alias("_rent_or_mortgage_raw"),
+    )
+
+
+# ==============================================================================
+# Componentes crudos para FACT_COMPORTAMIENTO — Contexto Maestro §6.3
+# (t054-t057, Sesión 27)
+#
+# Mismo patrón que select_kpi_components_pft(): recibe el DataFrame YA
+# indexado con record_id (nunca se regenera aparte, ver nota en
+# build_silver_master.py). Solo pasa columnas crudas sin transformar —
+# la derivación (t054: gasto promedio/varianza de ingreso por
+# segmento; t055-t057: pendientes) vive en el script de Gold
+# correspondiente (build_fact_comportamiento.py), no aquí.
+#
+# Se seleccionan de una vez las columnas de t054 (monthly_income,
+# monthly_expense_total, income_type) y las que van a necesitar
+# t055-t057 (debt_to_income_ratio, fraud_flag, subscription_services,
+# emergency_fund, actual_savings) — evita tocar build_silver_master.py
+# de nuevo por cada tarea de Fase 4 que siga. Solo PFT: t054-t057 están
+# definidas exclusivamente sobre este dataset (Contexto Maestro §6.3,
+# FACT_COMPORTAMIENTO, grano 1 fila por record_id de PFT).
+# ==============================================================================
+
+
+def select_comportamiento_components_pft(df_indexed: DataFrame) -> DataFrame:
+    """Columnas crudas de Personal Finance Tracker para
+    FACT_COMPORTAMIENTO (t054-t057). Ver nota del bloque de arriba."""
+    return df_indexed.select(
+        "record_id",
+        col("monthly_income"),
+        col("monthly_expense_total"),
+        col("income_type"),
+        col("debt_to_income_ratio"),
+        col("fraud_flag"),
+        col("subscription_services"),
+        col("emergency_fund"),
+        col("actual_savings"),
     )
 
 

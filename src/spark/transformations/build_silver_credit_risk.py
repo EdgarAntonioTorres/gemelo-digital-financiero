@@ -31,6 +31,8 @@ from silver_transformations import (
     impute_numeric_by_group,
     impute_numeric_global,
 )
+from quarantine import quarantine_and_write
+from pipeline_timing import log_execution
 
 BRONZE_PATH = "s3a://bronze/credit_risk/"
 SILVER_PATH = "s3a://silver/credit_risk/"
@@ -72,6 +74,7 @@ def build_spark_session() -> SparkSession:
 
 def main() -> None:
     spark = None
+    status = "success"
     start_time = time.monotonic()
     try:
         spark = build_spark_session()
@@ -90,7 +93,7 @@ def main() -> None:
             row_count_bronze - row_count_deduped,
         )
 
-        # t054 (Sesión 26): loan_int_rate y person_emp_length no se
+        # (Sesión 26): loan_int_rate y person_emp_length no se
         # imputaban porque nadie las necesitaba hasta calculate_kpis.py
         # (proxies de loan_int_rate_norm/emp_stability para IRFI, §6.2.1).
         # loan_int_rate: 9.5% de nulos, agrupado por loan_grade (la tasa
@@ -114,17 +117,29 @@ def main() -> None:
         capped_count = df.filter(df.person_income_outlier_flag).count()
         logger.info("Outliers de person_income recortados: %s filas", capped_count)
 
+        # (Fase 3): gate de calidad — separa filas inválidas según
+        # expectations_config.py, las escribe a cuarentena y devuelve
+        # solo las válidas. No detiene la corrida si hay cuarentena.
+        df = quarantine_and_write(df, SOURCE_NAME)
+
+        row_count_final = df.count()
         logger.info("Escribiendo Silver en: %s", SILVER_PATH)
         df.write.mode("overwrite").option("compression", "snappy").parquet(SILVER_PATH)
         logger.info(
-            "Silver de credit_risk completado: %s filas escritas.", row_count_deduped
+            "Silver de credit_risk completado: %s filas escritas "
+            "(%s pasaron deduplicación, %s en cuarentena por t046).",
+            row_count_final,
+            row_count_deduped,
+            row_count_deduped - row_count_final,
         )
     except Exception:
+        status = "failed"
         logger.exception("Falló la construcción de Silver para credit_risk.")
         sys.exit(1)
     finally:
         elapsed_seconds = time.monotonic() - start_time
         logger.info("Duración total de la corrida: %.1f segundos", elapsed_seconds)
+        log_execution("build_silver_credit_risk", elapsed_seconds, status)
         if spark is not None:
             spark.stop()
 
