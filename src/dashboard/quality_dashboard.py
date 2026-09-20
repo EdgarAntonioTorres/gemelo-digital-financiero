@@ -267,9 +267,7 @@ def render_risk_savings_panel() -> None:
     st.subheader("Ahorro: fondo de emergencia (meses cubiertos) por segmento")
     try:
         df_comportamiento = load_fact_comportamiento()
-        con_segmento_ahorro = df_comportamiento[
-            df_comportamiento["segmento"].notna()
-        ]
+        con_segmento_ahorro = df_comportamiento[df_comportamiento["segmento"].notna()]
         if con_segmento_ahorro.empty:
             st.info("Ninguna fila tiene segmento de edad asignado.")
         else:
