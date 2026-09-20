@@ -43,6 +43,8 @@ from silver_transformations import (
     deduplicate,
     impute_numeric_by_group,
 )
+from quarantine import quarantine_and_write
+from pipeline_timing import log_execution
 
 BRONZE_PATH = "s3a://bronze/loan_default/"
 SILVER_PATH = "s3a://silver/loan_default/"
@@ -90,6 +92,7 @@ def build_spark_session() -> SparkSession:
 
 def main() -> None:
     spark = None
+    status = "success"
     start_time = time.monotonic()
     try:
         spark = build_spark_session()
@@ -112,7 +115,7 @@ def main() -> None:
         imputed_count = df.filter(df.dtir1_imputed_flag).count()
         logger.info("dtir1 imputados: %s filas", imputed_count)
 
-        # t054 (Sesión 26): rate_of_interest no se imputaba porque nadie
+        # (Sesión 26): rate_of_interest no se imputaba porque nadie
         # la necesitaba hasta calculate_kpis.py (proxy de loan_int_rate_norm
         # para IRFI, §6.2.1) — 24.5% de nulos confirmados, distribuidos
         # parejo entre loan_type (22.7%-33.8%, ningún grupo concentra
@@ -123,21 +126,48 @@ def main() -> None:
         rate_imputed_count = df.filter(df.rate_of_interest_imputed_flag).count()
         logger.info("rate_of_interest imputados: %s filas", rate_imputed_count)
 
+        # Hallazgo (cuarentena, Sesión 29): income tenía 6.16% de
+        # nulos nunca detectados ni tratados antes — ni (solo dtir1)
+        # ni (rate_of_interest/loan_int_rate/person_emp_length) la
+        # cubrieron. cap_income_outliers() solo winsoriza el tope, nunca
+        # tocó los nulos. Se imputa aquí, ANTES de winsorizar y de la
+        # cuarentena, por el mismo criterio ya usado en dtir1: no se
+        # eliminan filas por nulos (ver glosario de reglas de negocio),
+        # se imputa por mediana de grupo. loan_type se reutiliza
+        # como agrupador por ser el mismo criterio ya validado para
+        # dtir1/rate_of_interest, sin una columna más correlacionada
+        # con ingreso disponible en esta fuente.
+        df = impute_numeric_by_group(df, group_col="loan_type", target_col="income")
+        income_imputed_count = df.filter(df.income_imputed_flag).count()
+        logger.info("income imputados: %s filas", income_imputed_count)
+
         df = cap_income_outliers(df, income_col="income", percentile=0.99)
         capped_count = df.filter(df.income_outlier_flag).count()
         logger.info("Outliers de income recortados: %s filas", capped_count)
 
+        # (Fase 3): gate de calidad — separa filas inválidas según
+        # expectations_config.py, las escribe a cuarentena y devuelve
+        # solo las válidas. No detiene la corrida si hay cuarentena.
+        df = quarantine_and_write(df, SOURCE_NAME)
+
+        row_count_final = df.count()
         logger.info("Escribiendo Silver en: %s", SILVER_PATH)
         df.write.mode("overwrite").option("compression", "snappy").parquet(SILVER_PATH)
         logger.info(
-            "Silver de loan_default completado: %s filas escritas.", row_count_deduped
+            "Silver de loan_default completado: %s filas escritas "
+            "(%s pasaron deduplicación, %s en cuarentena).",
+            row_count_final,
+            row_count_deduped,
+            row_count_deduped - row_count_final,
         )
     except Exception:
+        status = "failed"
         logger.exception("Falló la construcción de Silver para loan_default.")
         sys.exit(1)
     finally:
         elapsed_seconds = time.monotonic() - start_time
         logger.info("Duración total de la corrida: %.1f segundos", elapsed_seconds)
+        log_execution("build_silver_loan_default", elapsed_seconds, status)
         if spark is not None:
             spark.stop()
 

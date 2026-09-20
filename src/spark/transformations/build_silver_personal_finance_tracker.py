@@ -34,6 +34,8 @@ import time
 from pyspark.sql import SparkSession
 
 from silver_transformations import apply_typing, deduplicate, derive_synthetic_age
+from quarantine import quarantine_and_write
+from pipeline_timing import log_execution
 
 BRONZE_PATH = "s3a://bronze/personal_finance_tracker/"
 SILVER_PATH = "s3a://silver/personal_finance_tracker/"
@@ -75,6 +77,7 @@ def build_spark_session() -> SparkSession:
 
 def main() -> None:
     spark = None
+    status = "success"
     start_time = time.monotonic()
     try:
         spark = build_spark_session()
@@ -100,13 +103,23 @@ def main() -> None:
             {row["segmento"]: row["count"] for row in segment_counts},
         )
 
+        # t046 (Fase 3): gate de calidad — separa filas inválidas según
+        # expectations_config.py, las escribe a cuarentena y devuelve
+        # solo las válidas. No detiene la corrida si hay cuarentena.
+        df = quarantine_and_write(df, SOURCE_NAME)
+
+        row_count_final = df.count()
         logger.info("Escribiendo Silver en: %s", SILVER_PATH)
         df.write.mode("overwrite").option("compression", "snappy").parquet(SILVER_PATH)
         logger.info(
-            "Silver de personal_finance_tracker completado: %s filas escritas.",
+            "Silver de personal_finance_tracker completado: %s filas escritas "
+            "(%s pasaron deduplicación, %s en cuarentena por t046).",
+            row_count_final,
             row_count_deduped,
+            row_count_deduped - row_count_final,
         )
     except Exception:
+        status = "failed"
         logger.exception(
             "Falló la construcción de Silver para personal_finance_tracker."
         )
@@ -114,6 +127,7 @@ def main() -> None:
     finally:
         elapsed_seconds = time.monotonic() - start_time
         logger.info("Duración total de la corrida: %.1f segundos", elapsed_seconds)
+        log_execution("build_silver_personal_finance_tracker", elapsed_seconds, status)
         if spark is not None:
             spark.stop()
 

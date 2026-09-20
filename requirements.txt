@@ -7,3 +7,12 @@ pytest==8.2.0
 # Fase 2 — Ingesta (t029, t030, t030b)
 pyspark==3.5.1
 kagglehub==0.2.9
+
+# Fase 3 — Calidad de datos (t045, t046): Great Expectations vía la API
+# legacy `great_expectations.dataset.SparkDFDataset` (sin DataContext
+# completo) — ver docstring de great_expectations_runner.py.
+great_expectations==0.18.19
+
+# t049: instrumentación de duración de pipeline hacia Postgres, sin
+# depender de un DAG que todavía no existe (t033b) — ver pipeline_timing.py.
+psycopg2-binary==2.9.9

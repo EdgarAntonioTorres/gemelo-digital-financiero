@@ -1,5 +1,3 @@
-version: "3.8"
-
 # Gemelo Digital Financiero — entorno base de desarrollo
 #
 # Todas las credenciales se leen desde .env (nunca hardcodeadas aquí).
@@ -12,7 +10,9 @@ version: "3.8"
 #                          (ver sección 6.1 del Contexto Maestro: Bronze/Silver
 #                          viven en MinIO, Gold y Operacional en este motor)
 #   - minio              : almacenamiento de objetos S3-compatible para Bronze/Silver
-#   - minio-init         : crea los buckets bronze/ y silver/ al arrancar
+#   - minio-init         : crea los buckets bronze/, silver/ y gold/ al arrancar
+#                          (gold agregado tras el bug de NoSuchBucket de la
+#                          Sesión 26 — antes se creaba a mano)
 #   - airflow-init        : inicializa la base de metadata y el usuario admin
 #   - airflow-webserver / airflow-scheduler : orquestación (LocalExecutor)
 
@@ -63,6 +63,14 @@ x-airflow-common: &airflow-common
     # para un entorno de desarrollo donde las corridas se revisan a los
     # pocos días de ejecutadas, no semanas después.
     AIRFLOW__LOGGING__MAX_LOG_AGE_IN_DAYS: "15"
+    # t045/t046 (Fase 3): permite que los scripts de transformations/
+    # (build_silver_*.py) importen expectations_config.py/quarantine.py
+    # de quality/, sin depender de --py-files en cada spark-submit.
+    # Deliberadamente NO se agrega diagnostics/ ni transformations/ aquí
+    # — la regla de Contexto Maestro §7.3 (diagnostics/ nunca importa de
+    # transformations/) sigue vigente, este PYTHONPATH solo habilita el
+    # sentido transformations/ -> quality/ que sí necesitamos.
+    PYTHONPATH: /opt/airflow/src/spark/quality
     # Credenciales / endpoints que consumen los DAGs y jobs de Spark:
     MINIO_ENDPOINT: http://minio:9000
     MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?falta MINIO_ROOT_USER en .env}
@@ -128,7 +136,7 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # --- Almacenamiento S3-compatible para Bronze/Silver ---
+  # --- Almacenamiento S3-compatible para Bronze/Silver/Gold ---
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
@@ -158,6 +166,7 @@ services:
       until mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD; do sleep 2; done;
       mc mb -p local/bronze;
       mc mb -p local/silver;
+      mc mb -p local/gold;
       exit 0;
       "
 
@@ -194,6 +203,31 @@ services:
     depends_on:
       airflow-init:
         condition: service_completed_successfully
+    restart: unless-stopped
+
+  # --- Dashboard de calidad (t048/t049) ---
+  # Contenedor aparte de Airflow a propósito (ver Dockerfile.streamlit):
+  # no necesita PySpark, solo lee de postgres-dw (quality_metrics de
+  # t047 y pipeline_execution_log de t049 — este último instrumentado
+  # directo en los scripts, no vía Airflow, porque todavía no existe
+  # un DAG de Silver→Gold, ver t033b).
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    image: gemelo-digital-financiero/streamlit:latest
+    ports:
+      - "8501:8501"
+    environment:
+      DW_POSTGRES_HOST: postgres-dw
+      DW_POSTGRES_DB: gemelo_digital
+      DW_POSTGRES_USER: ${DW_POSTGRES_USER:?falta DW_POSTGRES_USER en .env}
+      DW_POSTGRES_PASSWORD: ${DW_POSTGRES_PASSWORD:?falta DW_POSTGRES_PASSWORD en .env}
+    volumes:
+      - ./src/dashboard:/app
+    depends_on:
+      postgres-dw:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

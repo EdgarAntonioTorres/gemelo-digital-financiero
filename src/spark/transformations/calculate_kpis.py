@@ -80,9 +80,22 @@ import sys
 import time
 
 from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql.functions import col, lit, when
-
+from pyspark.sql.functions import col, expr, lit, when
 from silver_transformations import INCOME_TYPE_STABILITY, _min_max_normalize
+
+# Umbral de segmentación (t042/t113): <30 años. age_unificada del
+# maestro es STRING heterogéneo por fuente (Contexto Maestro §5.2):
+# edad exacta en Credit Risk y Personal Finance Tracker, pero BINS de
+# 10 años en Loan Default ("<25", "25-34"...) — la misma razón por la
+# que t113 ya excluyó Loan Default del cálculo del umbral. Se usa
+# `try_cast` (vía expr — no existe como función importable estable en
+# pyspark 3.5.1) en vez de `cast()`: devuelve NULL cuando age_unificada
+# no es un entero parseable (los bins de Loan Default), en vez de
+# fallar la corrida completa o forzar un valor. segmento sale NULL
+# para Loan Default en vez de inventar un supuesto de distribución
+# dentro del bin — mismo criterio de "no fabricar lo que los datos no
+# sostienen" ya usado en t056/t110. Documentado, no adivinado.
+SEGMENTO_AGE_THRESHOLD = 30
 
 SILVER_MASTER_PATH = "s3a://silver/master/"
 DIM_PATHS = {
@@ -242,6 +255,25 @@ def compute_irfi_ica(df_master: DataFrame, df_components: DataFrame) -> DataFram
     """
     df = df_master.join(df_components, on="record_id", how="inner")
 
+    # segmento (hallazgo Sesión 30, ver comentario junto a
+    # SEGMENTO_AGE_THRESHOLD): NULL para loan_default (bins, no edad
+    # exacta), 'early_career'/'established' para credit_risk/PFT.
+    # Bug corregido (Sesión 30): try_cast directo a INT fallaba en PFT
+    # porque age_unificada ahí llega como "34.0" (age es double antes
+    # del cast a string en unify_pft_schema), y "34.0" no es un
+    # literal INT válido para try_cast — daba NULL en las 3,000 filas
+    # de PFT, no solo en las de loan_default (que sí deben ser NULL).
+    # Se castea primero a DOUBLE (tolera el ".0") y luego a INT.
+    df = df.withColumn(
+        "_age_parsed", expr("try_cast(age_unificada AS DOUBLE)").cast("int")
+    )
+    df = df.withColumn(
+        "segmento",
+        when(col("_age_parsed").isNull(), lit(None))
+        .when(col("_age_parsed") < lit(SEGMENTO_AGE_THRESHOLD), lit("early_career"))
+        .otherwise(lit("established")),
+    ).drop("_age_parsed")
+
     df = df.withColumn(
         "grade_score",
         when(col("fuente") == "credit_risk", col("credit_score_norm")).otherwise(
@@ -274,6 +306,7 @@ def compute_irfi_ica(df_master: DataFrame, df_components: DataFrame) -> DataFram
     return df.select(
         "record_id",
         "fuente",
+        "segmento",
         "irfi",
         "ica",
         "default_flag_unificada",
@@ -324,6 +357,13 @@ def main() -> None:
         logger.info(
             "Filas por fuente: %s",
             {row["fuente"]: row["count"] for row in counts_by_source},
+        )
+
+        segmento_counts = df_fact.groupBy("fuente", "segmento").count().collect()
+        logger.info(
+            "segmento por fuente (NULL esperado en loan_default, bins de edad "
+            "no parseables — ver comentario junto a SEGMENTO_AGE_THRESHOLD): %s",
+            [(row["fuente"], row["segmento"], row["count"]) for row in segmento_counts],
         )
 
         logger.info("Escribiendo FACT_KPI_PERFIL en: %s", FACT_KPI_PATH)

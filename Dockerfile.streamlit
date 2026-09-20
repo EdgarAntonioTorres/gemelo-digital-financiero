@@ -1,0 +1,15 @@
+# Imagen del dashboard de calidad (t048/t049) — separada de la imagen
+# de Airflow (Dockerfile.airflow) a propósito: no necesita Java ni
+# PySpark, solo Python + streamlit + psycopg2.
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements-streamlit.txt .
+RUN pip install --no-cache-dir -r requirements-streamlit.txt
+
+COPY src/dashboard/ /app/
+
+EXPOSE 8501
+
+CMD ["streamlit", "run", "quality_dashboard.py", "--server.address=0.0.0.0"]

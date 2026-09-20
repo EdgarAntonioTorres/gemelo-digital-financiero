@@ -33,6 +33,9 @@ ENV JAVA_HOME=/usr/lib/jvm/default-java
 # Python — pip install como root en la imagen de Airflow rompe permisos.
 USER airflow
 
+USER airflow
+
 RUN pip install --no-cache-dir \
     pyspark==3.5.1 \
-    kagglehub==0.2.9
+    kagglehub==0.2.9 \
+    great_expectations==0.18.19
