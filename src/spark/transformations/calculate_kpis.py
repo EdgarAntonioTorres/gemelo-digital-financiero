@@ -36,7 +36,7 @@ Proxies por componente (Sesión 26):
   - Credit Risk: person_home_ownership (RENT=1.0/MORTGAGE=0.5/OWN=0.0)
   - Loan Default: neutro (0.5, sin proxy)
   - Personal Finance Tracker: 1 - norm(rent_or_mortgage) (invertido:
-    pago alto = más madurez = MENOS riesgo, consistente con t110)
+    pago alto = más madurez = MENOS riesgo, consistente)
 
 * neg_amortization_flag:
   - Credit Risk: 0 fijo (columna no existe)
@@ -58,11 +58,11 @@ Lee:
 
 Escribe:
     s3a://gold/fact_kpi_perfil/  (Parquet — NO escribe a Postgres
-    directamente; `t051` es la tarea aparte que carga Gold a
+    directamente; es la tarea aparte que carga Gold a
     postgres-dw, mismo patrón que el resto de src/spark/transformations/)
 
 Modo de escritura: overwrite, no histórico (Contexto Maestro §6.4) —
-Personal Finance Tracker es corte transversal (`t107`), no tiene
+Personal Finance Tracker es corte transversal, no tiene
 sentido acumular historial de un KPI cuyo dato base tampoco tiene
 historia real detrás.
 
@@ -83,18 +83,18 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col, expr, lit, when
 from silver_transformations import INCOME_TYPE_STABILITY, _min_max_normalize
 
-# Umbral de segmentación (t042/t113): <30 años. age_unificada del
+# Umbral de segmentación: <30 años. age_unificada del
 # maestro es STRING heterogéneo por fuente (Contexto Maestro §5.2):
 # edad exacta en Credit Risk y Personal Finance Tracker, pero BINS de
 # 10 años en Loan Default ("<25", "25-34"...) — la misma razón por la
-# que t113 ya excluyó Loan Default del cálculo del umbral. Se usa
+# que ya excluyó Loan Default del cálculo del umbral. Se usa
 # `try_cast` (vía expr — no existe como función importable estable en
 # pyspark 3.5.1) en vez de `cast()`: devuelve NULL cuando age_unificada
 # no es un entero parseable (los bins de Loan Default), en vez de
 # fallar la corrida completa o forzar un valor. segmento sale NULL
 # para Loan Default en vez de inventar un supuesto de distribución
 # dentro del bin — mismo criterio de "no fabricar lo que los datos no
-# sostienen" ya usado en t056/t110. Documentado, no adivinado.
+# sostienen" ya usado. Documentado, no adivinado.
 SEGMENTO_AGE_THRESHOLD = 30
 
 SILVER_MASTER_PATH = "s3a://silver/master/"
@@ -222,7 +222,7 @@ def prepare_pft_components(df: DataFrame) -> DataFrame:
     )
     df = _min_max_normalize(df, "_rent_or_mortgage_raw", "_rent_or_mortgage_norm")
     # Invertido respecto al monto crudo (Sesión 26): consistente con
-    # `t110` (pago de vivienda alto = más madurez financiera = MENOS
+    # (pago de vivienda alto = más madurez financiera = MENOS
     # riesgo, no más) — evita que dos KPIs lean la misma columna en
     # direcciones opuestas sin justificación.
     df = df.withColumn("housing_penalty", lit(1.0) - col("_rent_or_mortgage_norm"))

@@ -1,0 +1,51 @@
+{
+  "modelo": "XGBoost genérico (población completa, sin segmentar)",
+  "decision_tomada": "t065 mostró que el modelo segmentado <30 gana por margen chico (+0.016 AUC) usando 8x menos datos; no justifica mantener 2 modelos en producción. El genérico además es el único que sirve para established y loan_default.",
+  "feature_columns": [
+    "credit_score_norm",
+    "debt_to_income_norm",
+    "income_monthly_norm",
+    "loan_int_rate_norm",
+    "neg_amortization_flag"
+  ],
+  "label_column": "default_flag_unificada",
+  "hiperparametros": {
+    "n_estimators": 200,
+    "max_depth": 4,
+    "learning_rate": 0.1,
+    "eval_metric": "logloss",
+    "random_state": 42
+  },
+  "scale_pos_weight_entrenamiento_final": 3.141076655689718,
+  "filas_entrenamiento_final": 181081,
+  "nota_datos_entrenamiento_final": "Entrenado con TODO el dataset (train+test de t061), no solo train — el test ya cumplió su propósito de evaluar limpio en t064/t065. Las métricas de referencia abajo son de ESE entrenamiento (solo train), no de este modelo final, que no tiene test propio.",
+  "metricas_referencia_t064_t065": {
+    "t064_test_completo": {
+      "auc": 0.8124,
+      "f1": 0.6015,
+      "precision": 0.5563,
+      "recall": 0.6546
+    },
+    "t065_test_segmento_lt30": {
+      "auc": 0.8868,
+      "f1": 0.6984,
+      "precision": 0.6458,
+      "recall": 0.7604
+    },
+    "t065_test_resto_poblacion": {
+      "auc": 0.7981,
+      "f1": 0.5881,
+      "precision": 0.544,
+      "recall": 0.6401
+    }
+  },
+  "features_excluidas_y_por_que": {
+    "irfi_ica": "casi circulares, ya son combinación lineal de estos mismos componentes",
+    "emp_stability_credit_hist_norm_housing_penalty": "0.5 constante en el 100% de loan_default, sin dato crudo detrás",
+    "fuente_one_hot": "dejado fuera del baseline a propósito"
+  },
+  "hallazgo_critico_loan_int_rate_norm": "loan_int_rate_norm es neutro (0.5) para el 100% de loan_default — se descubrió fuga de datos real en rate_of_interest_imputed_flag (Sesión 32-33, ver Bitácora). Real solo en credit_risk. Mismo componente usado en el IRFI de Fase 4 (calculate_kpis.py) SIN esta corrección — pendiente de validar con el mentor.",
+  "fecha_entrenamiento": "2026-09-25T18:43:22.415794+00:00",
+  "sesion": "Sesión 33 (2026-09-25)",
+  "estado": "Finalizado, pendiente de aprobación explícita del mentor BBVA"
+}

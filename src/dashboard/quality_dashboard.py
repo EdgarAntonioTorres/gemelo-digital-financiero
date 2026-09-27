@@ -6,8 +6,7 @@ Dashboard de calidad y ejecutivo — Fase 3 + Fase 4
   1. % de registros que pasan validación (`t047`,
      `operational.quality_metrics`).
   2. Tiempos de ejecución del pipeline (`t049`,
-     `operational.pipeline_execution_log`, instrumentado directo en
-     cada script — no vía Airflow, ver `t033b`).
+     `operational.pipeline_execution_log`)
   3. Ingresos vs. gastos por usuario/segmento (`t059`,
      `gold.fact_comportamiento`).
   4. KPIs de riesgo (IRFI/ICA) y ahorro por segmento — dashboard
@@ -139,8 +138,7 @@ def render_pipeline_timing_panel() -> None:
     st.header("Tiempos de ejecución del pipeline")
     st.caption(
         "Fuente: `operational.pipeline_execution_log`, instrumentado directo en "
-        "cada script (`pipeline_timing.py`) — todavía no hay un DAG de "
-        "Silver→Gold en Airflow que orqueste esto (pendiente)."
+        "cada script (`pipeline_timing.py`)."
     )
 
     try:

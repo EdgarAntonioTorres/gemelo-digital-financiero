@@ -5,3 +5,10 @@
 streamlit==1.38.0
 psycopg2-binary==2.9.9
 pandas==2.2.2
+
+# t067 (Fase 5): motor del simulador Monte Carlo (simulator_engine.py).
+# numpy ya llega transitivo vía pandas, se fija explícito por
+# claridad de qué versión se usa. scipy es nuevo en este contenedor
+# (bootstrap de intervalos de confianza, scipy.stats.bootstrap).
+numpy==1.26.4
+scipy==1.13.1

@@ -113,6 +113,7 @@ import time
 
 from pyspark.sql import SparkSession, Window
 from pyspark.sql.functions import col, expr, lit, var_pop, when
+from pipeline_timing import log_execution
 
 SILVER_DIM_COMPORTAMIENTO_PFT_PATH = "s3a://silver/dim_comportamiento_pft/"
 SILVER_MASTER_PATH = "s3a://silver/master/"
@@ -162,6 +163,7 @@ def build_spark_session() -> SparkSession:
 
 def main() -> None:
     spark = None
+    status = "success"
     start_time = time.monotonic()
     try:
         spark = build_spark_session()
@@ -316,11 +318,13 @@ def main() -> None:
         )
         logger.info("FACT_COMPORTAMIENTO completado: %s filas escritas.", total_rows)
     except Exception:
+        status = "failed"
         logger.exception("Falló la construcción de FACT_COMPORTAMIENTO.")
         sys.exit(1)
     finally:
         elapsed_seconds = time.monotonic() - start_time
         logger.info("Duración total de la corrida: %.1f segundos", elapsed_seconds)
+        log_execution("build_fact_comportamiento", elapsed_seconds, status)
         if spark is not None:
             spark.stop()
 

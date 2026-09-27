@@ -607,11 +607,28 @@ def select_kpi_components_loan_default(df_indexed: DataFrame) -> DataFrame:
     Sin proxy razonable para `emp_stability`/`grade_score`/
     `credit_hist_norm`/`housing_penalty` (§6.2.1) — se ponderan neutro
     en `calculate_kpis.py`, no se exponen aquí.
+
+    `_interest_rate_imputed_flag` agregado en Sesión 32 (hallazgo de
+    `t063`, no parte del diseño original de Fase 3/4): sin este flag,
+    `rate_of_interest` mezcla tasas reales con el valor imputado por
+    mediana de grupo (`rate_of_interest_imputed_flag`, ya existente en
+    `s3a://silver/loan_default/` desde la Sesión 29, regla 6 del
+    glosario) sin poder distinguirlos — se confirmó con datos reales
+    que el 31.75% de las filas de loan_default comparten el mismo
+    valor imputado (≈3.99) y tienen una tasa de default 18x más alta
+    que el resto (69.4% vs 3.8%), lo que inflaba artificialmente la
+    importancia de `loan_int_rate_norm` en el modelo de `t063`
+    (XGBoost) sin ser una señal financiera real. Se expone el flag ya
+    existente en Silver, no se inventa nada nuevo — mismo criterio que
+    `age_synthetic_flag`/`irfi_proxy_flag`: exponer explícitamente
+    cuándo un valor es imputado en vez de dejar que se confunda con
+    dato real.
     """
     return df_indexed.select(
         "record_id",
         col("rate_of_interest").alias("_interest_rate_raw"),
         col("Neg_ammortization").alias("_neg_amortization_raw"),
+        col("rate_of_interest_imputed_flag").alias("_interest_rate_imputed_flag"),
     )
 
 

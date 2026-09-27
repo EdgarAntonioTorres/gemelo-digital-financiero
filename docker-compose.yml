@@ -208,9 +208,7 @@ services:
   # --- Dashboard de calidad (t048/t049) ---
   # Contenedor aparte de Airflow a propósito (ver Dockerfile.streamlit):
   # no necesita PySpark, solo lee de postgres-dw (quality_metrics de
-  # t047 y pipeline_execution_log de t049 — este último instrumentado
-  # directo en los scripts, no vía Airflow, porque todavía no existe
-  # un DAG de Silver→Gold, ver t033b).
+  # t047 y pipeline_execution_log de t049
   streamlit:
     build:
       context: .
