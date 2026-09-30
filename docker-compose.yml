@@ -113,7 +113,7 @@ services:
     volumes:
       - postgres-airflow-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       retries: 5
     restart: unless-stopped
@@ -131,7 +131,7 @@ services:
       - postgres-dw-data:/var/lib/postgresql/data
       - ./config/init-dw-schemas.sql:/docker-entrypoint-initdb.d/init-dw-schemas.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       retries: 5
     restart: unless-stopped
@@ -221,8 +221,14 @@ services:
       DW_POSTGRES_DB: gemelo_digital
       DW_POSTGRES_USER: ${DW_POSTGRES_USER:?falta DW_POSTGRES_USER en .env}
       DW_POSTGRES_PASSWORD: ${DW_POSTGRES_PASSWORD:?falta DW_POSTGRES_PASSWORD en .env}
+      ASSISTANT_DB_USER: assistant_ro
+      ASSISTANT_DB_PASSWORD: ${ASSISTANT_RO_PASSWORD:?falta ASSISTANT_RO_PASSWORD en .env}
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./src/dashboard:/app
+      - ./docs:/app/docs:ro
     depends_on:
       postgres-dw:
         condition: service_healthy

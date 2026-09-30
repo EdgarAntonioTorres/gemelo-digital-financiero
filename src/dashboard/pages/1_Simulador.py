@@ -71,29 +71,12 @@ from simulator_engine import (  # noqa: E402
 from escenario_renta_demo import monto_meta_escenario_renta  # noqa: E402
 from escenario_auto_demo import monto_meta_escenario_auto  # noqa: E402
 from escenario_empleo_demo import monto_meta_escenario_empleo  # noqa: E402
+from perfiles_sinteticos import render_selector_perfil  # noqa: E402
 
-# Mismos 3 arquetipos/record_id que los 3 scripts demo — es el mismo
-# "login" simulado sin importar el escenario elegido.
-ARQUETIPOS = [
-    {
-        "label": "No uso la app",
-        "record_id": "PFT_0000413",
-        "ahorro_extra_pct_default": 0.0,
-        "descripcion": "Tu comportamiento actual, sin ningún cambio de hábito.",
-    },
-    {
-        "label": "Empiezo a usarla",
-        "record_id": "PFT_0000463",
-        "ahorro_extra_pct_default": 0.10,
-        "descripcion": "Ajusta tu disponible mensual +10% (ahorro guiado, recién empiezas).",
-    },
-    {
-        "label": "La uso hace tiempo",
-        "record_id": "PFT_0002151",
-        "ahorro_extra_pct_default": 0.25,
-        "descripcion": "Ajusta tu disponible mensual +25% (hábito ya consolidado).",
-    },
-]
+# t081: ARQUETIPOS y render_selector_perfil() se movieron a
+# perfiles_sinteticos.py — pages/2_Coach.py (el chat de Centavo)
+# necesita la MISMA lista de perfiles, y duplicarla en 2 páginas
+# arriesgaba que se desincronizaran (ver docstring de ese módulo).
 
 # Cada escenario define: qué tarea del checklist es, cómo se calcula
 # monto_meta a partir de la fila real de fact_comportamiento, y un
@@ -157,25 +140,6 @@ def render_selector_escenario() -> str:
         label_visibility="collapsed",
     )
     return keys[idx]
-
-
-def render_selector_perfil() -> dict:
-    st.subheader("2. Elige tu perfil")
-    st.caption(
-        'Selector de perfil sintético ("login" simulado, §10.2 Contexto '
-        "Maestro) — cada opción es un record_id real de "
-        "gold.fact_comportamiento, no un dato inventado."
-    )
-    labels = [a["label"] for a in ARQUETIPOS]
-    idx = st.radio(
-        "¿Cómo describirías tu uso de la app?",
-        options=range(len(ARQUETIPOS)),
-        format_func=lambda i: labels[i],
-        horizontal=True,
-    )
-    arquetipo = ARQUETIPOS[idx]
-    st.caption(arquetipo["descripcion"])
-    return arquetipo
 
 
 def render_parametros(ahorro_default: float) -> tuple[int, float]:
@@ -243,8 +207,8 @@ def main() -> None:
     st.set_page_config(page_title="Moneta — Simulador", layout="wide")
     st.title("Simulador de metas")
     st.caption(
-        "3 escenarios del checklist (renta, auto, cambio de "
-        "empleo), un solo motor (simulator_engine.py)."
+        "3 escenarios del checklist (t068 renta, t069 auto, t070 cambio de "
+        "empleo), un solo motor (simulator_engine.py, t067)."
     )
 
     try:
@@ -256,7 +220,7 @@ def main() -> None:
     escenario_key = render_selector_escenario()
     escenario = SCENARIOS[escenario_key]
 
-    arquetipo = render_selector_perfil()
+    arquetipo = render_selector_perfil("2. Elige tu perfil")
     record_id = arquetipo["record_id"]
     fila = df_comportamiento.loc[df_comportamiento["record_id"] == record_id]
     if fila.empty:
@@ -304,10 +268,32 @@ def main() -> None:
             monto_meta=monto_meta,
             horizonte_meses=horizonte_meses,
             ahorro_extra_pct=ahorro_extra_pct,
-            seed=None,  # UI real: sin semilla fija (los demos usan seed=42 para comparar)
+            seed=None,  # UI real:sin semilla fija (los demos usan seed=42 para comparar arquetipos)
         )
         st.divider()
         render_resultado(resultado, monto_meta)
+
+        # t081: se guarda en session_state (compartido entre páginas de
+        # una app multipágina de Streamlit) para que pages/2_Coach.py
+        # pueda responder preguntas de categoría "SIMULACION" (t076)
+        # sobre ESTA corrida en concreto, sin tener que volver a
+        # correr el Monte Carlo. Se guarda como texto ya formado (no el
+        # dataclass crudo) porque es justo lo que necesita el
+        # System Prompt de Centavo (t075) en RESULTADO_CONSULTA.
+        mes_p50_txt = (
+            f"mes {resultado.mes_meta_percentiles[50]:.0f}"
+            if resultado.mes_meta_percentiles
+            else "ninguna simulación llegó a la meta"
+        )
+        st.session_state["ultima_simulacion"] = (
+            f"Escenario: {escenario['label']}. Meta: ${monto_meta:,.0f}. "
+            f"Horizonte: {horizonte_meses} meses. Ajuste de ahorro aplicado: "
+            f"{ahorro_extra_pct * 100:.0f}%. Probabilidad de éxito: "
+            f"{resultado.prob_exito * 100:.1f}% (IC 95%: "
+            f"[{resultado.prob_exito_ic95[0] * 100:.1f}%, "
+            f"{resultado.prob_exito_ic95[1] * 100:.1f}%]). Mediana del mes en "
+            f"que se alcanza la meta: {mes_p50_txt}."
+        )
 
 
 if __name__ == "__main__":

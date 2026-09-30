@@ -12,3 +12,6 @@ pandas==2.2.2
 # (bootstrap de intervalos de confianza, scipy.stats.bootstrap).
 numpy==1.26.4
 scipy==1.13.1
+
+requests==2.32.3
+sqlparse==0.5.1
