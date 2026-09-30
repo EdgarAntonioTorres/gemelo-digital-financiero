@@ -235,7 +235,7 @@ def main() -> None:
         print(f"  Respuesta: {resultado.respuesta}")
         print("-" * 100)
 
-    print(f"\n=== RESUMEN ===")
+    print("\n=== RESUMEN ===")
     print(f"Categoría correcta: {aciertos}/{len(PREGUNTAS_T076)}")
     if fallos_categoria:
         print(
