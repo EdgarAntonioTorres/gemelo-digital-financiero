@@ -88,6 +88,7 @@ import sys
 import time
 
 from pyspark.sql import DataFrame, SparkSession
+from pipeline_timing import log_execution
 
 FACT_KPI_PATH = "s3a://gold/fact_kpi_perfil/"
 TARGET_TABLE = "gold.fact_kpi_perfil"
@@ -182,6 +183,7 @@ def write_to_postgres(df: DataFrame) -> None:
 
 def main() -> None:
     spark = None
+    status = "success"
     start_time = time.monotonic()
     try:
         spark = build_spark_session()
@@ -200,11 +202,13 @@ def main() -> None:
             "Carga completada: %s filas escritas en %s.", total_rows, TARGET_TABLE
         )
     except Exception:
+        status = "failed"
         logger.exception("Falló la carga de Gold a PostgreSQL.")
         sys.exit(1)
     finally:
         elapsed_seconds = time.monotonic() - start_time
         logger.info("Duración total de la corrida: %.1f segundos", elapsed_seconds)
+        log_execution("load_gold_postgres", elapsed_seconds, status)
         if spark is not None:
             spark.stop()
 

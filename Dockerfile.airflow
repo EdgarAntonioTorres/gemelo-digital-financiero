@@ -38,4 +38,25 @@ USER airflow
 RUN pip install --no-cache-dir \
     pyspark==3.5.1 \
     kagglehub==0.2.9 \
-    great_expectations==0.18.19
+    great_expectations==0.18.19 \
+    xgboost==2.0.3 \
+    scikit-learn==1.4.2 \
+    pandas==2.2.1
+
+# xgboost/scikit-learn/pandas (t063, Sesion 32): a diferencia del
+# conector S3A (hadoop-aws), que se resuelve en runtime via --packages
+# sin tocar esta imagen, xgboost SI necesita estar instalado aqui —
+# el `import xgboost` ocurre del lado del driver de Python, no es un
+# JAR que Spark resuelva por Maven. Se elige XGBoost puro (pandas) en
+# vez de xgboost4j-spark (distribuido): con 181,081 filas y 5 features
+# el dataset completo cabe comodo en memoria, no hace falta el camino
+# distribuido (mas complejo de configurar: requiere Scala + paquete
+# adicional via --packages). pandas se declara explicito (no se
+# asume que great_expectations lo arrastre como dependencia
+# transitiva sin fijar version) — mismo criterio de explicitud que el
+# resto del proyecto (ver comentarios de logging arriba).
+#
+# Requiere reconstruir la imagen (no alcanza con `docker compose up`):
+#   docker compose build airflow-webserver airflow-scheduler airflow-init
+#   docker compose up -d
+# o en un solo paso: docker compose up -d --build
