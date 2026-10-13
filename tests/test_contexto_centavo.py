@@ -400,12 +400,11 @@ class TestArreglosSegundaCorridaReal(unittest.TestCase):
         t = consulta_grupo.formatear(ana_primeriza(), self.GRUPO)
         self.assertIn("1,021 personas", t)
         self.assertIn(
-            "Ingreso mensual: tú $3,704; promedio del grupo $3,500 "
-            "(por encima del promedio)",
+            "Ingreso mensual:tú$3,704; promedio del grupo$3,500 (por encima del promedio)",
             t,
         )
         self.assertIn("Deuda", t)
-        self.assertIn("tú $58; promedio del grupo $30 (por encima del promedio)", t)
+        self.assertIn("tú$58; promedio del grupo$30 (por encima del promedio)", t)
         self.assertIn("no hay ninguna alerta activa", t)
         self.assertIn("ni inventes porcentajes", t)
 
