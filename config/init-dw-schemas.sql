@@ -34,3 +34,19 @@ CREATE TABLE IF NOT EXISTS gold.fact_kpi_perfil (
     irfi_proxy_flag BOOLEAN NOT NULL,
     ica_proxy_flag BOOLEAN NOT NULL
 );
+
+-- operational.pipeline_alerts (t084, Fase 6)
+-- Alertas registradas automáticamente por callbacks de Airflow
+-- ante fallos de tareas o violaciones de SLAs de ejecución.
+CREATE TABLE IF NOT EXISTS operational.pipeline_alerts (
+    id SERIAL PRIMARY KEY,
+    alert_timestamp TIMESTAMP NOT NULL DEFAULT now(),
+    alert_type VARCHAR(50) NOT NULL,
+    dag_id VARCHAR(200) NOT NULL,
+    task_id VARCHAR(200),
+    run_id VARCHAR(200),
+    execution_date VARCHAR(100),
+    severity VARCHAR(20) NOT NULL,
+    message TEXT NOT NULL,
+    details JSONB
+);

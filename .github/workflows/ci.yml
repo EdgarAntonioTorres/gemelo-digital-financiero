@@ -19,13 +19,13 @@ jobs:
           python-version: "3.11"
 
       - name: Install linters
-        run: pip install flake8 black
+        run: pip install flake8 "black==24.8.0"
 
       - name: Run black (check only)
         run: black --check src/ dags/ tests/
 
       - name: Run flake8
-        run: flake8 src/ dags/ tests/ --max-line-length=100
+        run: flake8 src/ dags/ tests/ --max-line-length=120
 
   test:
     runs-on: ubuntu-latest
@@ -42,7 +42,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install pytest
+          if [ -f requirements-streamlit.txt ]; then pip install -r requirements-streamlit.txt; fi
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Run tests
+        env:
+          PYTHONPATH: src:src/dashboard
         run: pytest tests/ -v

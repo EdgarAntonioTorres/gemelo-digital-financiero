@@ -54,4 +54,38 @@ Cada uno de los 3 escenarios del Simulador (`t068`-`t070`) usa una fórmula dist
 - **Primer vehículo:** tu meta es **3 veces tu ingreso mensual**. Es el enganche típico recomendado para un primer auto (3 meses de ingreso como enganche).
 - **Cambio de empleo / colchón de emergencia:** tu meta es la **brecha que te falta para cubrir 3 meses de gasto con tu fondo de emergencia** (el extremo bajo del benchmark de industria de 3 a 6 meses). Si ya cubres esos 3 meses, tu meta es $0 — no se te pide ahorrar de más solo porque sí.
 
-Estas 3 fórmulas están pendientes de aprobación formal del mentor del proyecto — son una propuesta razonada, no una regla ya cerrada de forma definitiva.
+Estas 3 fórmulas fueron revisadas y aprobadas por el mentor del proyecto (Sesión 36).
+
+## 9. Cuenta de ahorro
+
+Es una cuenta pensada para guardar dinero, separada de la que usas para tus gastos del día a día. Tenerla aparte ayuda a no gastar sin querer lo que juntaste, sobre todo el fondo de emergencia.
+
+Su ventaja principal es la disponibilidad: puedes sacar tu dinero cuando lo necesites. Antes de abrir una, conviene preguntar si cobra comisiones y cuánto paga de interés, porque eso cambia de una institución a otra.
+
+## 10. Ahorro programado
+
+Es una instrucción que das una sola vez: "cada que me llegue mi ingreso, aparta esta cantidad hacia mi ahorro". A partir de ahí el dinero se mueve solo, el mismo día que cobras, sin depender de tu fuerza de voluntad.
+
+Es la forma práctica de "pagarte primero" (ver el concepto 7). Puedes empezar con una cantidad pequeña y subirla poco a poco; lo importante es la constancia, no el monto inicial.
+
+## 11. Inversión de bajo riesgo
+
+Invertir es poner tu dinero en algo que puede crecer con el tiempo, a cambio de aceptar que el valor puede subir o bajar. "Bajo riesgo" quiere decir que se espera que el valor se mueva poco, no que sea imposible perder: ninguna inversión es completamente segura ni garantiza una ganancia.
+
+Una regla básica es invertir solo lo que no vas a necesitar pronto, y después de tener un fondo de emergencia en marcha, para no verte obligado a vender en un mal momento. Empezar con un monto pequeño sirve para aprender y crear el hábito.
+
+## 12. Ahorro para el retiro
+
+Es dinero que apartas hoy para vivir tranquilo cuando ya no trabajes. Aunque parezca lejano, empezar temprano marca una gran diferencia por el interés compuesto: tu dinero genera rendimiento, y ese rendimiento también genera más rendimiento, año tras año.
+
+Por eso, entre más temprano empiezas, más tiempo trabaja tu dinero a tu favor: aportar poco durante muchos años puede pesar más que aportar mucho durante pocos. En Moneta, las proyecciones de retiro son ilustrativas: usan por defecto un rendimiento supuesto de 6.0% anual real (descuenta la inflación, así que el resultado está en dólares de hoy), con un plazo de 30 años que se puede cambiar entre 10 y 40. Es un supuesto del escenario, no una promesa ni el rendimiento de un producto en particular.
+
+## 13. Madurez financiera: cómo se calcula tu nivel
+
+Moneta te asigna un nivel de madurez financiera a partir de tus hábitos, no de lo que sabes. Se calcula con dos datos: qué parte de tu ingreso se va en pagar deudas y cuántos meses de gasto cubre tu fondo de emergencia.
+
+- **Nivel 1, Primeros pasos:** de cada $100 que ganas, más de $40 se van en pagar deudas. Lo primero es ordenar la base.
+- **Nivel 2, Construyendo base:** tus deudas están en un nivel manejable (hasta $40 de cada $100 que ganas), pero tu fondo de emergencia aún no cubre 3 meses de gasto.
+- **Nivel 3, Creciendo:** deudas manejables y un fondo que cubre 3 meses de gasto o más.
+
+El nivel sirve para darte recomendaciones a tu medida: cambia qué te sugiere Centavo, no cómo te lo explica.
