@@ -19,7 +19,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install linters
-        run: pip install flake8 black
+        run: pip install flake8 "black==24.8.0"
 
       - name: Run black (check only)
         run: black --check src/ dags/ tests/
