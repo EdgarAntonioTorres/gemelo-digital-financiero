@@ -2,7 +2,8 @@
 Text-to-SQL sobre Gold — Coach Financiero (`t079`)
 
 Convierte una pregunta en español a una consulta SQL sobre
-`gold.fact_comportamiento` / `gold.fact_kpi_perfil` (Llama 3.1 8B vía
+`gold.fact_comportamiento` / `gold.fact_kpi_perfil` /
+`gold.fact_perfil_detalle` (Llama 3.1 8B vía
 Ollama, `t078`), la valida ANTES de tocar la base, y solo entonces la
 ejecuta con el rol `assistant_ro` (`config/create-assistant-ro.sql`).
 
@@ -24,6 +25,26 @@ confía en que la otra funcione:
      (Sesión 35: `DELETE` da "cannot execute DELETE in a read-only
      transaction", `SELECT` sobre `operational` da "permission
      denied").
+
+Cambios de la Sesión 36 (`t077` v2.3):
+  * `gold.fact_perfil_detalle` entra en `ALLOWED_TABLES`/`SCHEMA_CONTEXT`
+    (sin las columnas `huella_*`, que son de verificación, no de negocio).
+    Esa tabla tiene solo 2 filas (las dos Anas): un AVG() o un SELECT sin
+    filtro mezclaría a las dos personas. Por eso `validate_sql()` exige
+    `record_id = '<perfil activo>'` y rechaza condiciones que podrían
+    saltarse el filtro (OR, UNION, <>, LIKE, IN, ...) cuando la consulta
+    toca esa tabla.
+  * `validate_sql()` ahora también rechaza cualquier referencia a una tabla
+    de otro esquema EN CUALQUIER PARTE de la consulta (antes solo se miraba
+    después de FROM/JOIN, y un join con coma no se veía).
+  * `num_ctx` explícito, IGUAL al de `router.py`: si cambia entre
+    peticiones, Ollama recarga el modelo.
+
+Límite conocido (anterior a esta sesión, no se reabre): para
+`fact_comportamiento`/`fact_kpi_perfil` el filtro por `record_id` se
+valida por literal, no por semántica (`WHERE record_id = 'X' OR ...`
+pasaría). La segunda línea de defensa (`assistant_ro`) impide escribir y
+leer fuera de `gold`, pero no filtra filas.
 
 Autocontenido a propósito (mismo criterio que `simulator_engine.py`,
 `t067`): no importa nada de `src/spark/` ni `src/ml/`, duplica
@@ -53,13 +74,38 @@ import sqlparse
 
 OLLAMA_MODEL = "llama3.1:8b"
 OLLAMA_TIMEOUT_SECONDS = 30
+NUM_CTX = 4096  # mismo valor que router.py (ver docstring)
 
 # Único lugar donde se declara qué puede leer el asistente — tiene que
 # coincidir con lo que GRANT SELECT le da a assistant_ro en
 # config/create-assistant-ro.sql. Si un día se agrega una tabla nueva
 # al asistente, se agrega en AMBOS lugares a propósito (no hay
 # introspección automática del esquema — más simple de auditar).
-ALLOWED_TABLES = {"gold.fact_comportamiento", "gold.fact_kpi_perfil"}
+ALLOWED_TABLES = {
+    "gold.fact_comportamiento",
+    "gold.fact_kpi_perfil",
+    "gold.fact_perfil_detalle",
+}
+
+# Tablas que describen a UNA persona concreta y tienen muy pocas filas:
+# solo se consultan con record_id = '<perfil activo>' (ver docstring).
+TABLAS_SOLO_PERFIL_ACTIVO = {"gold.fact_perfil_detalle"}
+_PATRONES_QUE_SALTAN_EL_FILTRO = (
+    r"\bor\b",
+    r"\bunion\b",
+    r"\bintersect\b",
+    r"\bexcept\b",
+    r"\bnot\b",
+    r"\blike\b",
+    r"\bilike\b",
+    r"\bin\s*\(",
+    r"\bbetween\b",
+    r"<>",
+    r"!=",
+)
+_RE_REFERENCIA_ESQUEMA = re.compile(
+    r"\b(?:gold|operational|public|information_schema|pg_catalog)\.[a-z_]+"
+)
 
 MAX_ROWS_DEFAULT = 200
 
@@ -97,6 +143,13 @@ gold.fact_kpi_perfil (1 fila por record_id, las 3 fuentes unidas, 184086 filas, 
   record_id TEXT, fuente TEXT, irfi DOUBLE PRECISION, ica DOUBLE PRECISION,
   default_flag_unificada DOUBLE PRECISION, irfi_proxy_flag BOOLEAN,
   ica_proxy_flag BOOLEAN, segmento VARCHAR(20)
+
+gold.fact_perfil_detalle (detalle de las 2 personas de la demo; PK record_id;
+SOLO se consulta con WHERE record_id = '<perfil activo>', nunca con GROUP BY ni promedios):
+  record_id TEXT, meta_ahorro_mensual NUMERIC(18,2), ahorro_del_mes NUMERIC(18,2),
+  meta_ahorro_cumplida BOOLEAN, inversion_mensual NUMERIC(18,2),
+  fondo_emergencia_usd NUMERIC(18,2), proporcion_esencial NUMERIC(6,4),
+  suscripciones_activas INTEGER, edad_ilustrativa INTEGER
 """
 
 PROMPT_TEMPLATE = """Eres un generador de SQL para PostgreSQL. Responde
@@ -113,6 +166,8 @@ Reglas:
   income_type), usa GROUP BY, SIN filtrar por record_id.
 - Nunca selecciones todas las columnas de todas las filas sin
   agregación ni filtro de record_id.
+- gold.fact_perfil_detalle SOLO con WHERE record_id = '{record_id}' (una
+  condición simple), sin GROUP BY, sin promedios y sin OR.
 
 Pregunta del usuario: {pregunta}
 
@@ -146,7 +201,12 @@ def call_ollama(prompt: str) -> str:
     base_url = get_required_env("OLLAMA_BASE_URL")
     response = requests.post(
         f"{base_url}/api/generate",
-        json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+        json={
+            "model": OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"num_ctx": NUM_CTX},
+        },
         timeout=OLLAMA_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
@@ -196,6 +256,29 @@ def validate_sql(sql: str, record_id: str) -> str | None:
     tablas_no_permitidas = tablas_referenciadas - ALLOWED_TABLES
     if tablas_no_permitidas:
         return f"Tabla(s) no permitida(s): {', '.join(tablas_no_permitidas)}."
+
+    # Referencias a tablas de esquemas no permitidos EN CUALQUIER PARTE
+    # (cubre joins con coma, que el patrón de from/join no ve).
+    referencias = set(_RE_REFERENCIA_ESQUEMA.findall(sql_lower))
+    fuera = referencias - ALLOWED_TABLES
+    if fuera:
+        return f"Tabla(s) no permitida(s): {', '.join(sorted(fuera))}."
+
+    # Tablas de una sola persona: filtro simple por el perfil activo.
+    if referencias & TABLAS_SOLO_PERFIL_ACTIVO:
+        if not re.search(
+            rf"record_id\s*=\s*'{re.escape(record_id)}'", sql, flags=re.IGNORECASE
+        ):
+            return (
+                "gold.fact_perfil_detalle solo se consulta con "
+                f"record_id = '{record_id}'."
+            )
+        for patron in _PATRONES_QUE_SALTAN_EL_FILTRO:
+            if re.search(patron, sql_lower):
+                return (
+                    "Condición no permitida sobre gold.fact_perfil_detalle "
+                    f"(podría saltarse el filtro por perfil): {patron}."
+                )
 
     for match in re.finditer(r"record_id\s*=\s*'([^']+)'", sql, flags=re.IGNORECASE):
         if match.group(1) != record_id:

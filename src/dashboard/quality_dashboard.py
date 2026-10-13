@@ -1,41 +1,46 @@
 """
-Dashboard de calidad y ejecutivo — Fase 3 + Fase 4
+Dashboard Técnico de Calidad y Observabilidad — Fase 6 (`t085`)
+Alineado al Manual de Marca y Sistema de Diseño Moneta.
 
-4 paneles:
-
-  1. % de registros que pasan validación (`t047`,
-     `operational.quality_metrics`).
-  2. Tiempos de ejecución del pipeline (`t049`,
-     `operational.pipeline_execution_log`)
-  3. Ingresos vs. gastos por usuario/segmento (`t059`,
-     `gold.fact_comportamiento`).
-  4. KPIs de riesgo (IRFI/ICA) y ahorro por segmento — dashboard
-     ejecutivo v1 (`t060`, `gold.fact_kpi_perfil` +
-     `gold.fact_comportamiento`).
-
-Nota transversal para 3 y 4 (hallazgo Sesión 30, ver
-`diccionario_features.md`): `segmento` (`early_career`/`established`)
-es `NULL` para `loan_default` — esa fuente solo trae bins de edad de
-10 años, no edad exacta, y no se rellena con un supuesto de
-distribución (mismo criterio que ya evitó fabricar datos en `t056`).
-Los paneles filtran esos `NULL` de las vistas "por segmento" sin
-ocultar que existen — se muestran aparte, nunca se descartan en
-silencio.
-
-No requiere PySpark (por eso corre en un contenedor aparte, más
-liviano, ver `Dockerfile.streamlit`) — solo `psycopg2` + `pandas` +
-`streamlit`.
-
-Variables de entorno requeridas (ver docker-compose.yml, servicio
-`streamlit`): DW_POSTGRES_HOST, DW_POSTGRES_DB, DW_POSTGRES_USER,
-DW_POSTGRES_PASSWORD.
+Paneles consolidados:
+  1. Alertas operativas y SLAs (operational.pipeline_alerts).
+  2. Calidad de datos y cuarentena (operational.quality_metrics).
+  3. Tiempos de ejecución vs. SLAs (operational.pipeline_execution_log).
+  4. Ingresos vs. gastos por segmento (gold.fact_comportamiento).
+  5. KPIs de riesgo (IRFI/ICA) y ahorro por segmento (gold.fact_kpi_perfil).
 """
 
-import os
+from __future__ import annotations
 
+import os
 import pandas as pd
+import plotly.graph_objects as go
 import psycopg2
 import streamlit as st
+
+from styles import render_header_moneta
+
+# Tokens de color del Manual de Marca Moneta
+COLOR_CYAN = "#00F2FE"
+COLOR_EMERALD = "#00E676"
+COLOR_CORAL = "#FF5376"
+COLOR_SLATE = "#94A3B8"
+COLOR_BG_CARD = "#161F30"
+
+DEFAULT_TASK_SLA_SECONDS = 300.0
+SLA_THRESHOLDS_SECONDS = {
+    "ingest_loan_default": 240.0,
+    "ingest_credit_risk": 240.0,
+    "ingest_personal_finance_tracker": 240.0,
+    "build_silver_loan_default": 300.0,
+    "build_silver_credit_risk": 300.0,
+    "build_silver_personal_finance_tracker": 300.0,
+    "build_silver_master": 300.0,
+    "calculate_kpis": 300.0,
+    "build_fact_comportamiento": 300.0,
+    "load_gold_postgres": 300.0,
+    "load_fact_comportamiento_postgres": 300.0,
+}
 
 
 def get_required_env(name: str) -> str:
@@ -55,12 +60,53 @@ def get_dw_connection():
     )
 
 
+def _layout_transparente(
+    fig: go.Figure, alto: int = 320, margen: dict | None = None
+) -> go.Figure:
+    fig.update_layout(
+        height=alto,
+        margin=margen or dict(left=15, r=15, t=30, b=25),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font={"color": "#FFFFFF", "family": "Inter, sans-serif"},
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    fig.update_xaxes(showgrid=False, zeroline=False, color=COLOR_SLATE)
+    fig.update_yaxes(
+        showgrid=True,
+        gridcolor="rgba(148, 163, 184, 0.1)",
+        zeroline=False,
+        color=COLOR_SLATE,
+    )
+    return fig
+
+
+# --- Consultas SQL ---
+def load_pipeline_alerts() -> pd.DataFrame:
+    query = """
+        SELECT id, alert_timestamp, alert_type, dag_id, task_id,
+               run_id, execution_date, severity, message, details
+        FROM operational.pipeline_alerts
+        ORDER BY alert_timestamp DESC
+    """
+    return pd.read_sql(query, get_dw_connection())
+
+
 def load_quality_metrics() -> pd.DataFrame:
     query = """
         SELECT run_timestamp, source, valid_rows, quarantined_rows,
                total_rows, pass_rate_records, ge_expectations_total,
                ge_expectations_passed, ge_pass_rate_rules
         FROM operational.quality_metrics
+        ORDER BY run_timestamp DESC
+    """
+    return pd.read_sql(query, get_dw_connection())
+
+
+def load_pipeline_execution_log() -> pd.DataFrame:
+    query = """
+        SELECT script_name, run_timestamp, duration_seconds, status
+        FROM operational.pipeline_execution_log
         ORDER BY run_timestamp DESC
     """
     return pd.read_sql(query, get_dw_connection())
@@ -86,213 +132,325 @@ def load_fact_kpi_perfil() -> pd.DataFrame:
     return pd.read_sql(query, get_dw_connection())
 
 
-def load_pipeline_execution_log() -> pd.DataFrame:
-    query = """
-        SELECT script_name, run_timestamp, duration_seconds, status
-        FROM operational.pipeline_execution_log
-        ORDER BY run_timestamp DESC
-    """
-    return pd.read_sql(query, get_dw_connection())
+# --- Componentes de UI ---
+def render_alerts_and_timing_tab():
+    st.markdown("### Observabilidad Operativa y Desempeño de SLAs")
+    st.caption(
+        "Auditoría de ejecución, alertas automáticas en Postgres y "
+        "cumplimiento de SLAs contractuales."
+    )
 
+    # 1. Alertas
+    try:
+        df_alerts = load_pipeline_alerts()
+    except Exception:
+        df_alerts = pd.DataFrame()
 
-def render_quality_panel() -> None:
-    st.header("Calidad de datos")
+    c1, c2, c3 = st.columns(3)
+    criticas = (
+        len(df_alerts[df_alerts["severity"] == "CRITICAL"])
+        if not df_alerts.empty
+        else 0
+    )
+    warnings = (
+        len(df_alerts[df_alerts["severity"] == "WARNING"]) if not df_alerts.empty else 0
+    )
+    sla_misses = (
+        len(df_alerts[df_alerts["alert_type"] == "SLA_MISS"])
+        if not df_alerts.empty
+        else 0
+    )
+
+    with c1:
+        st.markdown(
+            f"""
+            <div class="fintech-card">
+                <div class="metric-title">Incidentes Críticos</div>
+                <div class="metric-value-lg" style="color: {'#FF5376' if criticas > 0 else '#00E676'};">
+                    {criticas}
+                </div>
+                <div class="metric-sub">Fallas que requirieron rollback o reintento</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with c2:
+        st.markdown(
+            f"""
+            <div class="fintech-card">
+                <div class="metric-title">Violaciones de SLA</div>
+                <div class="metric-value-lg" style="color: {'#00F2FE' if sla_misses == 0 else '#FF5376'};">
+                    {sla_misses}
+                </div>
+                <div class="metric-sub">Límite contractual (4 min ingesta / 5 min transf.)</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with c3:
+        st.markdown(
+            f"""
+            <div class="fintech-card">
+                <div class="metric-title">Advertencias Operativas</div>
+                <div class="metric-value-lg">{warnings}</div>
+                <div class="metric-sub">Eventos informativos o de backoff</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # 2. Gráfico Tiempos vs SLAs
+    st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
+    st.markdown("#### Duración de Tareas vs. Límite de SLA (Última Corrida)")
 
     try:
-        df = load_quality_metrics()
+        df_timing = load_pipeline_execution_log()
+    except Exception:
+        df_timing = pd.DataFrame()
+
+    if not df_timing.empty:
+        latest_timing = (
+            df_timing.sort_values("run_timestamp").groupby("script_name").tail(1).copy()
+        )
+        latest_timing["sla_limit_seconds"] = latest_timing["script_name"].map(
+            lambda name: SLA_THRESHOLDS_SECONDS.get(name, DEFAULT_TASK_SLA_SECONDS)
+        )
+
+        fig = go.Figure()
+        fig.add_trace(
+            go.Bar(
+                x=latest_timing["script_name"],
+                y=latest_timing["duration_seconds"],
+                name="Duración Real (s)",
+                marker_color=COLOR_CYAN,
+                hovertemplate="%{x}: %{y:.1f}s<extra></extra>",
+            )
+        )
+        fig.add_trace(
+            go.Bar(
+                x=latest_timing["script_name"],
+                y=latest_timing["sla_limit_seconds"],
+                name="Límite SLA (s)",
+                marker_color=COLOR_SLATE,
+                opacity=0.45,
+                hovertemplate="Límite: %{y:.0f}s<extra></extra>",
+            )
+        )
+        fig.update_layout(barmode="group")
+        st.plotly_chart(_layout_transparente(fig, 340), use_container_width=True)
+    else:
+        st.info("Sin registros de ejecución en operational.pipeline_execution_log.")
+
+    # Registro de incidentes reciente
+    if not df_alerts.empty:
+        with st.expander(
+            "Ver bitácora detallada de incidentes (operational.pipeline_alerts)"
+        ):
+            st.dataframe(
+                df_alerts[
+                    [
+                        "alert_timestamp",
+                        "severity",
+                        "alert_type",
+                        "dag_id",
+                        "task_id",
+                        "message",
+                    ]
+                ],
+                use_container_width=True,
+            )
+
+
+def render_quality_tab():
+    st.markdown("### Calidad de Datos y Cuarentena")
+    st.caption(
+        "Verificación de expectativas analíticas (Great Expectations) "
+        "sobre fuentes Bronze y Silver."
+    )
+
+    try:
+        df_quality = load_quality_metrics()
     except Exception as exc:
-        st.error(f"No se pudo leer operational.quality_metrics: {exc}")
+        st.error(f"Error consultando operational.quality_metrics: {exc}")
         return
 
-    if df.empty:
-        st.info("Todavía no hay corridas de quality_report.py registradas.")
+    if df_quality.empty:
+        st.info("No se han registrado reportes de calidad aún.")
         return
 
-    latest_ts = df["run_timestamp"].max()
-    latest = df[df["run_timestamp"] == latest_ts]
+    latest_ts = df_quality["run_timestamp"].max()
+    latest = df_quality[df_quality["run_timestamp"] == latest_ts]
 
-    st.caption(f"Última corrida: {latest_ts}")
     cols = st.columns(len(latest))
     for col, (_, row) in zip(cols, latest.iterrows()):
-        col.metric(
-            row["source"],
-            f"{row['pass_rate_records'] * 100:.2f}%",
-            help=(
-                f"{row['valid_rows']} válidas / {row['total_rows']} totales "
-                f"({row['quarantined_rows']} en cuarentena) · "
-                f"GE: {row['ge_expectations_passed']}/{row['ge_expectations_total']} reglas OK"
-            ),
+        pass_pct = row["pass_rate_records"] * 100.0
+        badge = "badge-emerald" if pass_pct >= 99.0 else "badge-coral"
+        with col:
+            st.markdown(
+                f"""
+                <div class="fintech-card">
+                    <div class="metric-title">{row['source']}</div>
+                    <div class="metric-value-lg">{pass_pct:.2f}%</div>
+                    <div style="margin-top: 8px;">
+                        <span class="{badge}">
+                            GE: {row['ge_expectations_passed']}/{row['ge_expectations_total']} reglas OK
+                        </span>
+                    </div>
+                    <div class="metric-sub" style="margin-top: 6px;">
+                        {row['quarantined_rows']} filas en cuarentena de {row['total_rows']:,}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    # Gráfico de tendencia de calidad
+    st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
+    st.markdown("#### Tasa de Conformidad de Registros por Fuente (%)")
+    fig = go.Figure()
+    colores_fuente = {
+        "loan_default": COLOR_CYAN,
+        "credit_risk": COLOR_EMERALD,
+        "personal_finance_tracker": "#D946EF",
+    }
+    for fuente in df_quality["source"].unique():
+        df_f = df_quality[df_quality["source"] == fuente].sort_values("run_timestamp")
+        fig.add_trace(
+            go.Scatter(
+                x=df_f["run_timestamp"],
+                y=df_f["pass_rate_records"] * 100.0,
+                mode="lines+markers",
+                name=fuente,
+                line=dict(color=colores_fuente.get(fuente, COLOR_SLATE), width=2.5),
+                marker=dict(size=6),
+            )
         )
+    fig.update_yaxes(range=[90, 101])
+    st.plotly_chart(_layout_transparente(fig, 300), use_container_width=True)
 
-    st.subheader("Histórico de % de validación por fuente")
-    pivot = df.pivot_table(
-        index="run_timestamp", columns="source", values="pass_rate_records"
-    ).sort_index()
-    st.line_chart(pivot)
-
-    with st.expander("Ver datos crudos"):
-        st.dataframe(df, use_container_width=True)
+    with st.expander("Ver tabla de corridas de validación"):
+        st.dataframe(df_quality, use_container_width=True)
 
 
-def render_pipeline_timing_panel() -> None:
-    st.header("Tiempos de ejecución del pipeline")
-    st.caption(
-        "Fuente: `operational.pipeline_execution_log`, instrumentado directo en "
-        "cada script (`pipeline_timing.py`)."
-    )
+def render_gold_analytics_tab():
+    st.markdown("### Perfiles y Comportamiento en Capa Gold")
+    st.caption("Distribución analítica agregada para validación de features y modelos.")
 
     try:
-        df = load_pipeline_execution_log()
-    except Exception as exc:
-        st.error(f"No se pudo leer operational.pipeline_execution_log: {exc}")
-        return
-
-    if df.empty:
-        st.info(
-            "Todavía no hay corridas registradas. Corre alguno de los "
-            "build_silver_<fuente>.py o quality_report.py y refresca."
-        )
-        return
-
-    latest_per_script = df.sort_values("run_timestamp").groupby("script_name").tail(1)
-    st.subheader("Última corrida por script")
-    st.bar_chart(latest_per_script.set_index("script_name")["duration_seconds"])
-
-    failed = latest_per_script[latest_per_script["status"] != "success"]
-    if not failed.empty:
-        st.warning(
-            "Última corrida con estado distinto de 'success': "
-            + ", ".join(failed["script_name"].tolist())
-        )
-
-    with st.expander("Ver histórico completo"):
-        st.dataframe(df, use_container_width=True)
-
-
-def render_income_expense_panel() -> None:
-    st.header("Ingresos vs. gastos por usuario/segmento")
-    st.caption(
-        "Solo `personal_finance_tracker` — es la única fuente con ambos datos "
-        "(las otras 2 traen ingreso/pago de préstamo, no gasto total). "
-        "`gasto_promedio_3m` es un snapshot transversal, no un promedio real "
-        "de 3 meses"
-    )
-
-    try:
-        df = load_fact_comportamiento()
-    except Exception as exc:
-        st.error(f"No se pudo leer gold.fact_comportamiento: {exc}")
-        return
-
-    if df.empty:
-        st.info("gold.fact_comportamiento está vacío — corre el pipeline de Gold.")
-        return
-
-    st.subheader("Promedio por segmento (edad)")
-    con_segmento = df[df["segmento"].notna()]
-    if con_segmento.empty:
-        st.info("Ninguna fila tiene segmento de edad asignado.")
-    else:
-        resumen = con_segmento.groupby("segmento")[
-            ["ingreso_mensual", "gasto_promedio_3m"]
-        ].mean()
-        st.bar_chart(resumen)
-
-    st.subheader("Promedio por income_type (Salary/Mixed/Freelance)")
-    resumen_income_type = df.groupby("income_type")[
-        ["ingreso_mensual", "gasto_promedio_3m"]
-    ].mean()
-    st.bar_chart(resumen_income_type)
-
-    with st.expander("Ver detalle por usuario (record_id)"):
-        segmentos_disponibles = ["Todos"] + sorted(
-            df["segmento"].dropna().unique().tolist()
-        )
-        filtro = st.selectbox("Filtrar por segmento", segmentos_disponibles)
-        tabla = df if filtro == "Todos" else df[df["segmento"] == filtro]
-        st.dataframe(
-            tabla[
-                [
-                    "record_id",
-                    "segmento",
-                    "income_type",
-                    "ingreso_mensual",
-                    "gasto_promedio_3m",
-                    "ratio_endeudamiento",
-                    "alerta_fraude",
-                ]
-            ],
-            use_container_width=True,
-        )
-
-
-def render_risk_savings_panel() -> None:
-    st.header("KPIs de riesgo y ahorro por segmento")
-    st.caption(
-        "`segmento` es NULL para `loan_default` (solo trae bins de edad, no "
-        "edad exacta — no se adivina, ver nota al inicio del módulo). Esas "
-        "filas se muestran aparte, no se ocultan."
-    )
-
-    try:
+        df_comp = load_fact_comportamiento()
         df_kpi = load_fact_kpi_perfil()
     except Exception as exc:
-        st.error(f"No se pudo leer gold.fact_kpi_perfil: {exc}")
+        st.error(f"Error consultando tablas Gold: {exc}")
         return
 
-    if df_kpi.empty:
-        st.info("gold.fact_kpi_perfil está vacío — corre el pipeline de Gold.")
-        return
+    c1, c2 = st.columns(2, gap="medium")
 
-    st.subheader("IRFI/ICA promedio por segmento (Credit Risk + PFT)")
-    con_segmento = df_kpi[df_kpi["segmento"].notna()]
-    if con_segmento.empty:
-        st.info("Ninguna fila tiene segmento de edad asignado.")
-    else:
-        resumen = con_segmento.groupby("segmento")[["irfi", "ica"]].mean()
-        st.bar_chart(resumen)
+    with c1:
+        st.markdown("#### Ingreso vs. Gasto Promedio por Segmento")
+        con_seg = df_comp[df_comp["segmento"].notna()]
+        if not con_seg.empty:
+            res_seg = (
+                con_seg.groupby("segmento")[["ingreso_mensual", "gasto_promedio_3m"]]
+                .mean()
+                .reset_index()
+            )
+            fig = go.Figure()
+            fig.add_trace(
+                go.Bar(
+                    x=res_seg["segmento"],
+                    y=res_seg["ingreso_mensual"],
+                    name="Ingreso Neto",
+                    marker_color=COLOR_EMERALD,
+                )
+            )
+            fig.add_trace(
+                go.Bar(
+                    x=res_seg["segmento"],
+                    y=res_seg["gasto_promedio_3m"],
+                    name="Gasto 3M",
+                    marker_color=COLOR_CORAL,
+                )
+            )
+            fig.update_layout(barmode="group")
+            st.plotly_chart(_layout_transparente(fig, 300), use_container_width=True)
 
-    sin_segmento_n = df_kpi["segmento"].isna().sum()
-    st.caption(
-        f"{sin_segmento_n} filas sin segmento (loan_default) excluidas del "
-        "gráfico anterior — no se promedian con un valor inventado."
+    with c2:
+        st.markdown("#### IRFI e ICA Promedio por Segmento")
+        con_kpi_seg = df_kpi[df_kpi["segmento"].notna()]
+        if not con_kpi_seg.empty:
+            res_kpi = (
+                con_kpi_seg.groupby("segmento")[["irfi", "ica"]].mean().reset_index()
+            )
+            fig_kpi = go.Figure()
+            fig_kpi.add_trace(
+                go.Bar(
+                    x=res_kpi["segmento"],
+                    y=res_kpi["irfi"],
+                    name="IRFI (Riesgo)",
+                    marker_color=COLOR_CORAL,
+                )
+            )
+            fig_kpi.add_trace(
+                go.Bar(
+                    x=res_kpi["segmento"],
+                    y=res_kpi["ica"],
+                    name="ICA (Capacidad)",
+                    marker_color=COLOR_CYAN,
+                )
+            )
+            fig_kpi.update_layout(barmode="group")
+            st.plotly_chart(
+                _layout_transparente(fig_kpi, 300), use_container_width=True
+            )
+
+    st.markdown("#### Explorador de Registros Sintéticos (Gold)")
+    segmentos = ["Todos"] + sorted(df_comp["segmento"].dropna().unique().tolist())
+    filtro_seg = st.selectbox("Filtrar registros por segmento:", segmentos)
+    tabla_filtrada = (
+        df_comp if filtro_seg == "Todos" else df_comp[df_comp["segmento"] == filtro_seg]
     )
 
-    st.subheader("IRFI/ICA promedio por fuente (las 3, para contexto completo)")
-    resumen_fuente = df_kpi.groupby("fuente")[["irfi", "ica"]].mean()
-    st.bar_chart(resumen_fuente)
-
-    st.subheader("Ahorro: fondo de emergencia (meses cubiertos) por segmento")
-    try:
-        df_comportamiento = load_fact_comportamiento()
-        con_segmento_ahorro = df_comportamiento[df_comportamiento["segmento"].notna()]
-        if con_segmento_ahorro.empty:
-            st.info("Ninguna fila tiene segmento de edad asignado.")
-        else:
-            resumen_ahorro = con_segmento_ahorro.groupby("segmento")[
-                "fondo_emergencia_meses"
-            ].mean()
-            st.bar_chart(resumen_ahorro)
-        st.caption(
-            "Solo `personal_finance_tracker` tiene fondo de emergencia — "
-            "las otras 2 fuentes no traen ese dato."
-        )
-    except Exception as exc:
-        st.error(f"No se pudo leer gold.fact_comportamiento: {exc}")
+    st.dataframe(
+        tabla_filtrada[
+            [
+                "record_id",
+                "segmento",
+                "income_type",
+                "ingreso_mensual",
+                "gasto_promedio_3m",
+                "ratio_endeudamiento",
+                "alerta_fraude",
+            ]
+        ],
+        use_container_width=True,
+    )
 
 
 def main() -> None:
-    st.set_page_config(page_title="Gemelo Digital — Calidad", layout="wide")
-    st.title("Dashboard de calidad — Gemelo Digital Financiero")
+    render_header_moneta(
+        titulo_panel="Observabilidad y Calidad — Lakehouse Moneta",
+        subtitulo=(
+            "Monitoreo de SLAs, auditoría operativa en DW y consistencia "
+            "analítica de datos."
+        ),
+    )
 
-    render_quality_panel()
-    st.divider()
-    render_pipeline_timing_panel()
-    st.divider()
-    render_income_expense_panel()
-    st.divider()
-    render_risk_savings_panel()
+    tab_ops, tab_quality, tab_gold = st.tabs(
+        [
+            "⚡ Operaciones & SLAs",
+            "🛡️ Calidad de Datos & GE",
+            "📈 Analítica de Capa Gold",
+        ]
+    )
+
+    with tab_ops:
+        render_alerts_and_timing_tab()
+
+    with tab_quality:
+        render_quality_tab()
+
+    with tab_gold:
+        render_gold_analytics_tab()
 
 
-if __name__ == "__main__":
-    main()
+main()

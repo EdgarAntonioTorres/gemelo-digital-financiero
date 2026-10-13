@@ -229,6 +229,7 @@ services:
     volumes:
       - ./src/dashboard:/app
       - ./docs:/app/docs:ro
+      - ./tests:/app/tests:ro
     depends_on:
       postgres-dw:
         condition: service_healthy

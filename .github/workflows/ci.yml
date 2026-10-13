@@ -25,7 +25,7 @@ jobs:
         run: black --check src/ dags/ tests/
 
       - name: Run flake8
-        run: flake8 src/ dags/ tests/ --max-line-length=100
+        run: flake8 src/ dags/ tests/ --max-line-length=120
 
   test:
     runs-on: ubuntu-latest

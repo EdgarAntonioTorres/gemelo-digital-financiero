@@ -47,6 +47,7 @@ ya usado en `t110`).
 
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
+    broadcast,
     coalesce,
     col,
     concat,
@@ -214,7 +215,7 @@ def impute_numeric_by_group(
         expr(f"percentile_approx({target_col}, 0.5)").alias("_global_median")
     ).collect()[0]["_global_median"]
 
-    df = df.join(group_medians, on=group_col, how="left")
+    df = df.join(broadcast(group_medians), on=group_col, how="left")
     df = df.withColumn(
         target_col,
         when(col(target_col).isNotNull(), col(target_col))
