@@ -25,3 +25,14 @@ data/raw/
 
 # Notas personales (no publicar)
 parami.md
+
+# Resultados generados de pruebas t082 (mantener solo lo commiteado)
+src/dashboard/assistant/resultados_t082/*_temp.md
+
+# PySpark e inspecciones locales
+metastore_db/
+derby.log
+.spark-warehouse/
+
+# Scripts personales
+*.sh
