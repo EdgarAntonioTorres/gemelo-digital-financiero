@@ -42,7 +42,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install pytest
+          if [ -f requirements-streamlit.txt ]; then pip install -r requirements-streamlit.txt; fi
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Run tests
-        run: PYTHONPATH=src:src/dashboard pytest tests/ -v
+        env:
+          PYTHONPATH: src:src/dashboard
+        run: pytest tests/ -v
