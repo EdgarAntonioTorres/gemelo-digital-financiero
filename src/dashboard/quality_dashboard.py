@@ -1,5 +1,5 @@
 """
-Dashboard Técnico de Calidad y Observabilidad — Fase 6 (`t085`)
+Dashboard Técnico de Calidad, Observabilidad y Gobierno — Fase 6 (`t085`)
 Alineado al Manual de Marca y Sistema de Diseño Moneta.
 
 Paneles consolidados:
@@ -8,6 +8,7 @@ Paneles consolidados:
   3. Tiempos de ejecución vs. SLAs (operational.pipeline_execution_log).
   4. Ingresos vs. gastos por segmento (gold.fact_comportamiento).
   5. KPIs de riesgo (IRFI/ICA) y ahorro por segmento (gold.fact_kpi_perfil).
+  6. Catálogo funcional y Gobierno del Dato DAMA-DMBOK (data_catalog.py).
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import psycopg2
 import streamlit as st
 
 from styles import render_header_moneta
+from data_catalog import DAMA_DOMINIOS, INVENTARIO_TABLAS
 
 # Tokens de color del Manual de Marca Moneta
 COLOR_CYAN = "#00F2FE"
@@ -65,7 +67,8 @@ def _layout_transparente(
 ) -> go.Figure:
     fig.update_layout(
         height=alto,
-        margin=margen or dict(left=15, r=15, t=30, b=25),
+        margin=margen
+        or {"l": 15, "r": 15, "t": 30, "b": 25},  # <-- Cambiar 'left' por 'l'
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font={"color": "#FFFFFF", "family": "Inter, sans-serif"},
@@ -426,20 +429,123 @@ def render_gold_analytics_tab():
     )
 
 
+def render_data_governance_tab():
+    st.markdown("### 🏛️ Gobierno del Dato, DAMA-DMBOK y Catálogo Funcional")
+    st.caption(
+        "Inventario integral de tablas, asignación de Data Owners, linaje de negocio "
+        "y diccionario de campos."
+    )
+
+    # Resumen de Marco DAMA
+    with st.expander("📚 Marco de Gobierno de Datos Moneta (Alineado a DAMA-DMBOK)"):
+        for dominio, detalle in DAMA_DOMINIOS.items():
+            st.markdown(f"**• {dominio}:** {detalle}")
+
+    st.markdown("---")
+
+    # Selector de Tabla del Inventario
+    tablas_disponibles = list(INVENTARIO_TABLAS.keys())
+    tabla_sel = st.selectbox(
+        "Selecciona la tabla que deseas auditar:",
+        tablas_disponibles,
+        format_func=lambda t: f"{t} — {INVENTARIO_TABLAS[t]['data_owner']}",
+    )
+
+    info = INVENTARIO_TABLAS[tabla_sel]
+
+    # Ficha Técnica de la Tabla (Owner, Ubicación, Capa)
+    col1, col2 = st.columns([1.2, 1.0], gap="medium")
+    with col1:
+        st.markdown(
+            f"""
+            <div class="fintech-card" style="border-left: 3px solid #00F2FE;">
+                <div class="metric-title">{info['nombre_tecnico']}</div>
+                <div style="font-size: 0.95rem; color: #FFFFFF; margin-top: 6px;">
+                    {info['descripcion_funcional']}
+                </div>
+                <div style="margin-top: 12px; font-size: 0.85rem; color: #94A3B8;">
+                    <b>Capa:</b> {info['capa']}<br>
+                    <b>Granularidad:</b> {info['grano']}<br>
+                    <b>Frecuencia de Actualización:</b> {info['frecuencia_actualizacion']}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with col2:
+        st.markdown(
+            f"""
+            <div class="fintech-card" style="border-left: 3px solid #00E676;">
+                <div class="metric-title">Gobierno y Localización Física</div>
+                <div style="margin-top: 8px; font-size: 0.88rem; color: #F1F5F9; line-height: 1.6;">
+                    <b>👤 Data Owner:</b> {info['data_owner']}<br>
+                    <b>🛠️ Custodio Técnico:</b> {info['custodio_tecnico']}<br>
+                    <b>🔒 Clasificación de Seguridad:</b> {info['sensibilidad']}<br>
+                    <b>📍 Ubicación en DW:</b> <code>{info['ubicacion_dw']}</code><br>
+                    <b>📦 Formato de Almacenamiento:</b> <code>{info['formato_origen']}</code>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
+    st.markdown("#### 📖 Diccionario Funcional de Campos")
+    st.caption(
+        "Descripción de negocio, reglas de cálculo, aproximaciones metodológicas y linaje de datos."
+    )
+
+    # Buscador de campos
+    filtro_campo = st.text_input(
+        "🔍 Filtrar campos por nombre o palabra clave:", "", key="filtro_campos"
+    )
+
+    df_campos = pd.DataFrame(info["campos"])
+
+    if filtro_campo:
+        mask = (
+            df_campos["campo"].str.contains(filtro_campo, case=False, na=False)
+            | df_campos["descripcion"].str.contains(filtro_campo, case=False, na=False)
+            | df_campos["regla_o_calculo"].str.contains(
+                filtro_campo, case=False, na=False
+            )
+        )
+        df_campos = df_campos[mask]
+
+    # Renderizado de la tabla con configuración de columnas de Streamlit
+    st.dataframe(
+        df_campos,
+        column_config={
+            "campo": st.column_config.TextColumn("Campo Técnico", width="medium"),
+            "tipo": st.column_config.TextColumn("Tipo de Dato", width="small"),
+            "origen": st.column_config.TextColumn("Fuente / Linaje", width="small"),
+            "descripcion": st.column_config.TextColumn(
+                "Descripción Funcional (Negocio)", width="large"
+            ),
+            "regla_o_calculo": st.column_config.TextColumn(
+                "Regla de Cálculo / Derivación DAMA", width="large"
+            ),
+        },
+        hide_index=True,
+        use_container_width=True,
+    )
+
+
 def main() -> None:
     render_header_moneta(
-        titulo_panel="Observabilidad y Calidad — Lakehouse Moneta",
+        titulo_panel="Observabilidad, Gobierno y Calidad — Lakehouse Moneta",
         subtitulo=(
-            "Monitoreo de SLAs, auditoría operativa en DW y consistencia "
-            "analítica de datos."
+            "Monitoreo de SLAs, auditoría DAMA, catálogo funcional y consistencia analítica de datos."
         ),
     )
 
-    tab_ops, tab_quality, tab_gold = st.tabs(
+    tab_ops, tab_quality, tab_gold, tab_gov = st.tabs(
         [
             "⚡ Operaciones & SLAs",
             "🛡️ Calidad de Datos & GE",
             "📈 Analítica de Capa Gold",
+            "🏛️ Gobierno del Dato & DAMA",
         ]
     )
 
@@ -451,6 +557,9 @@ def main() -> None:
 
     with tab_gold:
         render_gold_analytics_tab()
+
+    with tab_gov:
+        render_data_governance_tab()
 
 
 main()

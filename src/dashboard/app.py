@@ -105,7 +105,7 @@ def _render_login():
                     <ul>
                         <li><b>Perfiles Demo (Ana):</b> Experiencia interactiva para usuarios
                         jóvenes en inserción laboral.</li>
-                        <li><b>Modo Admin / Mentor:</b> Observabilidad del Data Warehouse,
+                        <li><b>Modo Admin:</b> Observabilidad del Data Warehouse,
                         SLAs y alertas en vivo.</li>
                     </ul>
                 </div>
@@ -163,7 +163,7 @@ def main():
         "Tu Gemelo Digital": [pag_hoy, pag_sim, pag_coach],
     }
 
-    # Si es Administrador / Mentor, se desbloquea el Quality Dashboard
+    # Si es Administrador, se desbloquea el Quality Dashboard
     if es_admin:
         pag_calidad = st.Page(
             "quality_dashboard.py", title="Observabilidad y SLAs", icon="🛠️"
