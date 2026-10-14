@@ -49,14 +49,14 @@ import streamlit as st
 
 ARQUETIPOS = [
     {
-        "label": "Ana primeriza",
+        "label": "Ana Caso 1",
         "nombre": "Ana",
         "record_id": "PFT_0000636",
         "ahorro_extra_pct_default": 0.0,
         "descripcion": "Ana trabaja por su cuenta y está dando sus primeros pasos con su dinero.",
     },
     {
-        "label": "Ana más madura",
+        "label": "Ana Caso 2",
         "nombre": "Ana",
         "record_id": "PFT_0002539",
         "ahorro_extra_pct_default": 0.0,

@@ -165,16 +165,10 @@ def render_header_moneta(titulo_panel: str, subtitulo: str = "") -> None:
         st.markdown(
             f"""
             <div style="display: flex; align-items: baseline; gap: 10px; margin-top: 2px;">
-                (
-                    '<span style="font-size: 1.6rem; font-weight: 800; color: #FFFFFF; '
-                    'letter-spacing: -0.03em;">'
-                )
+                <span style="font-size: 1.6rem; font-weight: 800; color: #FFFFFF; letter-spacing: -0.03em;">
                     moneta
                 </span>
-                (
-                    '<span style="font-size: 0.95rem; color: #00F2FE; font-weight: 400; '
-                    'letter-spacing: 0.05em;">'
-                )
+                <span style="font-size: 0.95rem; color: #00F2FE; font-weight: 400; letter-spacing: 0.05em;">
                     tu gemelo financiero
                 </span>
                 <span style="color: #94A3B8; font-size: 1.1rem; margin: 0 4px;">|</span>
