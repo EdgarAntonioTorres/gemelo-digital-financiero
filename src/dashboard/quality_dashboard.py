@@ -67,7 +67,8 @@ def _layout_transparente(
 ) -> go.Figure:
     fig.update_layout(
         height=alto,
-        margin=margen or {"l": 15, "r": 15, "t": 30, "b": 25},  # <-- Cambiar 'left' por 'l'
+        margin=margen
+        or {"l": 15, "r": 15, "t": 30, "b": 25},  # <-- Cambiar 'left' por 'l'
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font={"color": "#FFFFFF", "family": "Inter, sans-serif"},
