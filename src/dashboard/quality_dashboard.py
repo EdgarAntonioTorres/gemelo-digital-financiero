@@ -518,13 +518,13 @@ def render_data_governance_tab():
 
         # Filas sin indentación inicial para no disparar el bloque de código de Markdown
         fila = (
-            f'<tr>'
+            f"<tr>"
             f'<td style="font-family: monospace; font-weight: 600; color: #00F2FE;">{c_campo}</td>'
             f'<td style="color: #94A3B8;">{c_tipo}</td>'
             f'<td style="color: #CBD5E1;">{c_origen}</td>'
             f'<td style="color: #FFFFFF;">{c_desc}</td>'
             f'<td style="color: #E2E8F0;">{c_regla}</td>'
-            f'</tr>'
+            f"</tr>"
         )
         html_filas.append(fila)
 
@@ -532,11 +532,12 @@ def render_data_governance_tab():
     if not html_filas:
         filas_body = (
             '<tr><td colspan="5" style="text-align: center; color: #94A3B8; padding: 20px;">'
-            'No se encontraron campos que coincidan con la búsqueda.'
-            '</td></tr>'
+            "No se encontraron campos que coincidan con la búsqueda."
+            "</td></tr>"
         )
 
-    tabla_html = textwrap.dedent(f"""
+    tabla_html = textwrap.dedent(
+        f"""
     <div style="
         width: 100%;
         overflow-x: auto;
@@ -584,7 +585,8 @@ def render_data_governance_tab():
             }}
         </style>
     </div>
-    """).strip()
+    """
+    ).strip()
 
     st.markdown(tabla_html, unsafe_allow_html=True)
 
