@@ -1,7 +1,7 @@
 """Catálogo de Datos y Gobierno Funcional — Moneta (Alineado a DAMA-DMBOK).
 
-Inventario de tablas, Data Owners, definiciones funcionales y diccionario de
-campos.
+Inventario de tablas, Data Owners, definiciones funcionales y diccionario de campos
+con redacción accesible para todo público y desglose de siglas.
 """
 
 from __future__ import annotations
@@ -9,25 +9,28 @@ from __future__ import annotations
 # Marco DAMA aplicado al proyecto
 DAMA_DOMINIOS = {
     "Arquitectura y Almacenamiento": (
-        "Arquitectura Lakehouse Medallion (Bronze/Silver/Gold) sobre MinIO "
-        "en formato Parquet plano compactado (coalesce(4)), con capa analítica servida "
-        "en PostgreSQL 15."
+        "Arquitectura Lakehouse Medallion (organizada en capas de madurez Bronze, "
+        "Silver y Gold) montada sobre MinIO en formato Parquet plano compactado "
+        "(coalesce(4)), con la capa analítica final servida en PostgreSQL 15."
     ),
     "Gobierno y Data Ownership": (
-        "Asignación explícita de propietarios por dominio funcional (Riesgo, "
-        "Finanzas Personales, Operaciones) y control de acceso RBAC estricto."
+        "Asignación explícita de líderes responsables por dominio funcional (Riesgo Crediticio, "
+        "Finanzas Personales, Operaciones de Plataforma) y control de acceso estricto basado en roles (RBAC)."
     ),
     "Calidad de Datos": (
-        "Framework automatizado con Great Expectations (8/8 reglas validadas), "
-        "cuarentena de anomalías y políticas de 'cero eliminación de filas' mediante imputación por grupos."
+        "Framework automatizado con Great Expectations (8 de 8 reglas operativas superadas), "
+        "mecanismo de aislamiento preventivo para anomalías y políticas de cero eliminación "
+        "mediante imputación estadística por grupos afines."
     ),
     "Seguridad y Privacidad": (
-        "Aislamiento de la IA mediante usuario 'assistant_ro' (solo SELECT en gold, "
-        "transacción de solo lectura y timeout de 10s) + sanitización sintáctica."
+        "Aislamiento preventivo para agentes de Inteligencia Artificial mediante un usuario exclusivo "
+        "de solo lectura ('assistant_ro') con permisos limitados a SELECT en Gold, transacciones de solo lectura "
+        "y un tiempo máximo de espera de 10 segundos por consulta."
     ),
     "Metadatos y Linaje": (
-        "Trazabilidad completa con flags de auditoría (irfi_proxy_flag, age_synthetic_flag, "
-        "outlier_flags) y derivaciones reproducibles vía RDD.zipWithIndex()."
+        "Trazabilidad de punta a punta con indicadores de auditoría técnica "
+        "(irfi_proxy_flag, age_synthetic_flag, outlier_flags) y derivación determinista "
+        "de identificadores únicos mediante transformaciones reproducibles."
     ),
 }
 
@@ -35,350 +38,452 @@ DAMA_DOMINIOS = {
 INVENTARIO_TABLAS = {
     "gold.fact_kpi_perfil": {
         "nombre_tecnico": "gold.fact_kpi_perfil",
-        "capa": "Gold (Base Analítica DW)",
+        "capa": "Gold (Base Analítica de Datos Listos para Consumo)",
         "formato_origen": "Parquet plano en s3a://gold/fact_kpi_perfil/",
-        "ubicacion_dw": "postgres-dw / gemelo_digital / esquema gold",
-        "grano": "1 fila por persona/registro (184,081 filas)",
+        "ubicacion_dw": "postgres-dw / base gemelo_digital / esquema gold",
+        "grano": "Una sola fila por persona o registro evaluado (184,081 filas en total)",
         "data_owner": "Área de Riesgos y Modelos de Crédito",
-        "custodio_tecnico": "Equipo de Data Engineering Moneta",
-        "frecuencia_actualizacion": "Batch diario / Overwrite programado (Airflow)",
-        "sensibilidad": "Interna / Confidencial (Uso analítico interno)",
+        "custodio_tecnico": "Equipo de Ingeniería de Datos Moneta",
+        "frecuencia_actualizacion": "Procesamiento por lotes diario con reemplazo total programado en Apache Airflow",
+        "sensibilidad": "Información Interna y Confidencial (Uso analítico interno)",
         "descripcion_funcional": (
-            "Consolida los indicadores maestros de salud financiera: Riesgo Financiero Inicial "
-            "(IRFI), Capacidad de Ahorro (ICA) y la variable objetivo de impago crediticio (default). "
-            "Sirve de base para el filtrado de perfiles, evaluación y entrenamiento de modelos ML."
+            "Consolida los indicadores maestros de salud financiera: el Índice de Riesgo Financiero "
+            "Individual (IRFI), la Capacidad de Ahorro (ICA) y la variable objetivo de impago crediticio (default). "
+            "Sirve de base para clasificar perfiles, evaluar capacidades y alimentar modelos de machine learning."
         ),
         "campos": [
             {
                 "campo": "record_id",
-                "tipo": "TEXT (PK)",
-                "origen": "Sintético unificado (Silver Master)",
-                "descripcion": "Identificador único prefijado por fuente (LD_, CR_, PFT_ + 7 dígitos).",
-                "regla_o_calculo": "Generado con RDD.zipWithIndex(). Garantiza unicidad entre fuentes.",
+                "tipo": "Texto (Identificador Único - Clave Primaria)",
+                "origen": "Generado en la capa intermedia unificada (Silver Master)",
+                "descripcion": (
+                    "Identificador alfanumérico único e irrepetible para cada persona dentro de la plataforma. "
+                    "Inicia con un prefijo que indica de qué base de datos proviene (LD_ para Préstamos con Impago, "
+                    "CR_ para Riesgo de Crédito y PFT_ para Seguimiento de Finanzas Personales) seguido de 7 dígitos."
+                ),
+                "regla_o_calculo": "Asignado de manera secuencial y determinista en la capa Silver para evitar colisiones entre fuentes.",
             },
             {
                 "campo": "fuente",
-                "tipo": "TEXT",
-                "origen": "Metadato de ingesta",
-                "descripcion": "Dataset de procedencia del registro.",
-                "regla_o_calculo": "'loan_default', 'credit_risk' o 'personal_finance_tracker'.",
+                "tipo": "Texto",
+                "origen": "Etiqueta técnica asignada durante la extracción de datos",
+                "descripcion": (
+                    "Nombre de la base de datos o archivo original de donde provienen los datos del usuario. "
+                    "Permite distinguir si el registro viene de historias de crédito bancario tradicional o de registros "
+                    "cotidianos de ingresos y gastos de finanzas personales."
+                ),
+                "regla_o_calculo": "Toma los valores exactos: 'loan_default' (préstamos con mora), 'credit_risk' (historial crediticio) o 'personal_finance_tracker' (gastos personales).",
             },
             {
                 "campo": "segmento",
-                "tipo": "TEXT (Nullable)",
-                "origen": "Derivado de age_unificada",
-                "descripcion": "Segmento etario del usuario.",
+                "tipo": "Texto (Opcional o Vacío)",
+                "origen": "Derivado a partir de la edad estandarizada del usuario",
+                "descripcion": (
+                    "Clasificación de la etapa laboral del usuario según su edad. Ayuda a ofrecer recomendaciones "
+                    "distintas a quienes recién comienzan su vida productiva frente a quienes ya tienen más trayectoria laboral."
+                ),
                 "regla_o_calculo": (
-                    "'early_career' si edad < 30 años; 'established' si >= 30. "
-                    "Es NULL en loan_default porque esa fuente solo incluye bins decenales."
+                    "Se asigna 'early_career' (etapa inicial) si la edad es menor a 30 años, y 'established' (etapa consolidada) "
+                    "si tiene 30 años o más. Queda en blanco (NULL) en loan_default porque esa fuente solo registra rangos de edad de 10 años."
                 ),
             },
             {
                 "campo": "irfi",
-                "tipo": "DOUBLE PRECISION",
-                "origen": "Calculado (calculate_kpis.py)",
-                "descripcion": "Índice de Riesgo Financiero Individual (0 a 1). Más alto = más riesgo.",
+                "tipo": "Número Decimal Continuo (0.0 a 1.0)",
+                "origen": "Calculado en la tarea calculate_kpis.py",
+                "descripcion": (
+                    "Índice de Riesgo Financiero Individual (IRFI). Es una calificación de 0 a 1 que mide la probabilidad "
+                    "de que la persona enfrente problemas de liquidez o endeudamiento excesivo. Un valor más alto significa mayor riesgo."
+                ),
                 "regla_o_calculo": (
-                    "0.25*loan_percent_income + 0.15*(1-emp_stability) + 0.20*loan_int_rate_norm "
-                    "+ 0.15*neg_amortization_flag + 0.10*(1-grade_score) + 0.15*(1-credit_hist_norm). "
-                    "Excluye deliberadamente Credit_Score para no duplicar scores externos."
+                    "Suma ponderada de factores: 25% porcentaje de cuota sobre ingresos, 15% inestabilidad laboral, "
+                    "20% tasa de interés normalizada, 15% amortización negativa, 10% nivel de calificación crediticia "
+                    "y 15% historial crediticio. Se excluye el puntaje de buró externo para evitar duplicar mediciones."
                 ),
             },
             {
                 "campo": "ica",
-                "tipo": "DOUBLE PRECISION",
-                "origen": "Calculado (calculate_kpis.py)",
-                "descripcion": "Índice de Capacidad de Ahorro (0 a 1). Más alto = mayor margen de ahorro.",
-                "regla_o_calculo": "1 - [0.5*loan_percent_income + 0.3*(1-emp_stability) + 0.2*housing_penalty].",
+                "tipo": "Número Decimal Continuo (0.0 a 1.0)",
+                "origen": "Calculado en la tarea calculate_kpis.py",
+                "descripcion": (
+                    "Índice de Capacidad de Ahorro (ICA). Es un puntaje de 0 a 1 que refleja cuánto margen de maniobra tiene "
+                    "el usuario para ahorrar e invertir al final del mes. Mientras más cercano esté a 1, mayor es su holgura."
+                ),
+                "regla_o_calculo": "Calculado como: 1 - [50% carga del préstamo + 30% inestabilidad de empleo + 20% penalización por gastos de vivienda].",
             },
             {
                 "campo": "default_flag_unificada",
-                "tipo": "DOUBLE PRECISION (Nullable)",
-                "origen": "Loan Default (Status) / Credit Risk (loan_status)",
-                "descripcion": "Indicador de incumplimiento histórico (1.0 = Default, 0.0 = Al corriente).",
-                "regla_o_calculo": "Unión directa. Queda NULL en Personal Finance Tracker al ser no-crediticio.",
+                "tipo": "Número Decimal Binario (1.0, 0.0 o Vacío)",
+                "origen": "Columna Status en Loan Default y loan_status en Credit Risk",
+                "descripcion": (
+                    "Indicador que señala si la persona cayó en incumplimiento de pago (mora crediticia) en el pasado. "
+                    "Un valor de 1.0 indica que no pagó a tiempo, y 0.0 indica que se mantuvo al corriente con sus compromisos."
+                ),
+                "regla_o_calculo": "Unión directa de los históricos crediticios. Queda en blanco (NULL) para registros de finanzas personales al no ser contratos de crédito.",
             },
             {
                 "campo": "irfi_proxy_flag",
-                "tipo": "BOOLEAN",
-                "origen": "Trazabilidad de linaje",
-                "descripcion": "Bandera de uso de variables sustitutas (proxies).",
-                "regla_o_calculo": "False en Credit Risk (nativa); True en Loan Default y PFT al requerir proxies.",
+                "tipo": "Booleano (Verdadero o Falso)",
+                "origen": "Etiqueta de linaje y auditoría de datos",
+                "descripcion": (
+                    "Bandera de auditoría técnica que advierte si para calcular el riesgo (IRFI) se tuvieron que estimar variables "
+                    "aproximadas (variables sustitutas o proxies) debido a que la fuente original no contaba con todas las mediciones exactas."
+                ),
+                "regla_o_calculo": "Es Falso (False) para Credit Risk porque tiene todos los datos de origen; es Verdadero (True) para Loan Default y finanzas personales por requerir aproximaciones.",
             },
             {
                 "campo": "ica_proxy_flag",
-                "tipo": "BOOLEAN",
-                "origen": "Trazabilidad de linaje",
-                "descripcion": "Bandera de uso de proxies para el cálculo del ICA.",
-                "regla_o_calculo": "Idéntico a irfi_proxy_flag por compartir componentes estructurales.",
+                "tipo": "Booleano (Verdadero o Falso)",
+                "origen": "Etiqueta de linaje y auditoría de datos",
+                "descripcion": (
+                    "Bandera de auditoría técnica que advierte si para estimar la capacidad de ahorro (ICA) se utilizaron variables "
+                    "aproximadas o derivadas debido a la falta de información directa de gastos de vivienda o estabilidad laboral."
+                ),
+                "regla_o_calculo": "Sigue idéntico valor que irfi_proxy_flag ya que ambos índices comparten las mismas variables estructurales de partida.",
             },
         ],
     },
     "gold.fact_comportamiento": {
         "nombre_tecnico": "gold.fact_comportamiento",
-        "capa": "Gold (Base Analítica DW)",
+        "capa": "Gold (Base Analítica de Datos Listos para Consumo)",
         "formato_origen": "Parquet plano en s3a://gold/fact_comportamiento/",
-        "ubicacion_dw": "postgres-dw / gemelo_digital / esquema gold",
-        "grano": "1 fila por persona de Personal Finance Tracker (3,000 filas)",
-        "data_owner": "Área de Finanzas Personales y Comportamiento",
-        "custodio_tecnico": "Equipo de Data Engineering Moneta",
-        "frecuencia_actualizacion": "Batch diario / Overwrite programado (Airflow)",
-        "sensibilidad": "Interna (Métricas transaccionales agregadas)",
+        "ubicacion_dw": "postgres-dw / base gemelo_digital / esquema gold",
+        "grano": "Una sola fila por cada persona registrada en la encuesta de finanzas personales (3,000 filas)",
+        "data_owner": "Área de Finanzas Personales y Comportamiento Financiero",
+        "custodio_tecnico": "Equipo de Ingeniería de Datos Moneta",
+        "frecuencia_actualizacion": "Procesamiento por lotes diario con reemplazo total programado en Apache Airflow",
+        "sensibilidad": "Información Interna (Métricas transaccionales y de comportamiento agregadas)",
         "descripcion_funcional": (
-            "Representa los hábitos financieros reales y transaccionales del usuario joven: "
-            "volumen de gasto mensual, capacidad de colchón ante emergencias, intensidad de suscripciones "
-            "y carga de endeudamiento sobre los ingresos."
+            "Representa los hábitos financieros cotidianos de usuarios jóvenes: cuánto dinero ingresan, cuánto "
+            "gastan al mes, cuántos meses sobrevivirían ante una emergencia, su nivel de endeudamiento y sus suscripciones activas."
         ),
         "campos": [
             {
                 "campo": "record_id",
-                "tipo": "TEXT (PK)",
-                "origen": "Personal Finance Tracker",
-                "descripcion": "Identificador único con prefijo PFT_ (conecta con fact_kpi_perfil).",
-                "regla_o_calculo": "Asignado en Silver Master vía RDD.zipWithIndex().",
+                "tipo": "Texto (Identificador Único - Clave Primaria)",
+                "origen": "Encuesta de Seguimiento de Finanzas Personales (Personal Finance Tracker)",
+                "descripcion": (
+                    "Código único e individual que identifica a cada usuario dentro del estudio de hábitos cotidianos. "
+                    "Empieza siempre con las letras PFT_ para enlazar de manera directa con su perfil en la tabla fact_kpi_perfil."
+                ),
+                "regla_o_calculo": "Asignado en la capa Silver mediante numeración correlativa garantizando unicidad total.",
             },
             {
                 "campo": "fuente",
-                "tipo": "TEXT",
-                "origen": "Constante de diseño",
-                "descripcion": "Fuente de origen del registro.",
-                "regla_o_calculo": "Siempre 'personal_finance_tracker'.",
+                "tipo": "Texto",
+                "origen": "Constante de diseño de pipeline",
+                "descripcion": (
+                    "Identifica el dataset del cual se extraen estos datos de comportamiento transaccional. "
+                    "Permite asegurar que los indicadores mostrados provienen de personas reales encuestadas sobre sus hábitos de gasto."
+                ),
+                "regla_o_calculo": "Contiene siempre el texto fijo 'personal_finance_tracker'.",
             },
             {
                 "campo": "segmento",
-                "tipo": "TEXT (Nullable)",
-                "origen": "Silver Master (age_unificada)",
-                "descripcion": "Segmento etario de madurez inicial.",
-                "regla_o_calculo": "'early_career' (<30 años) o 'established' (>=30 años).",
+                "tipo": "Texto (Opcional o Vacío)",
+                "origen": "Capa Silver Master derivada de la edad unificada",
+                "descripcion": (
+                    "Grupo etario y laboral al que pertenece la persona según su edad. Se utiliza para comparar "
+                    "los hábitos de ahorro y gasto entre profesionales jóvenes y usuarios con mayor madurez profesional."
+                ),
+                "regla_o_calculo": "'early_career' si tiene menos de 30 años, o 'established' si tiene 30 años cumplidos o más.",
             },
             {
                 "campo": "income_type",
-                "tipo": "TEXT",
-                "origen": "Personal Finance Tracker (income_type)",
-                "descripcion": "Modalidad de obtención de ingresos.",
-                "regla_o_calculo": "Valores categóricos: 'Salary', 'Mixed' o 'Freelance'.",
+                "tipo": "Texto",
+                "origen": "Encuesta de Finanzas Personales (columna income_type)",
+                "descripcion": (
+                    "Modalidad principal mediante la cual la persona genera sus ingresos económicos cada mes. "
+                    "Permite segmentar a quienes reciben un sueldo fijo respecto a quienes tienen ingresos variables."
+                ),
+                "regla_o_calculo": "Clasificado en tres categorías posibles: 'Salary' (empleado con sueldo fijo), 'Freelance' (independiente) o 'Mixed' (mixto o combinado).",
             },
             {
                 "campo": "ingreso_mensual",
-                "tipo": "NUMERIC(18,2)",
-                "origen": "Personal Finance Tracker (monthly_income)",
-                "descripcion": "Ingreso mensual promedio neto en USD.",
-                "regla_o_calculo": "Snapshot transversal observado.",
+                "tipo": "Moneda Decimal (Dólares Estadounidenses USD)",
+                "origen": "Encuesta de Finanzas Personales (columna monthly_income)",
+                "descripcion": (
+                    "Monto neto promedio de dinero en efectivo que la persona percibe durante un mes después de impuestos. "
+                    "Representa la base económica total disponible para vivir, pagar deudas, ahorrar e invertir."
+                ),
+                "regla_o_calculo": "Valor monetario directo registrado en la encuesta al momento del corte analítico.",
             },
             {
                 "campo": "gasto_promedio_3m",
-                "tipo": "NUMERIC(18,2)",
-                "origen": "Personal Finance Tracker (monthly_expense_total)",
-                "descripcion": "Gasto mensual representativo en USD.",
-                "regla_o_calculo": (
-                    "Aproximación transversal documentada: al ser PFT un corte transversal y no panel, "
-                    "equivale a monthly_expense_total tal cual, sin forzar series sintéticas."
+                "tipo": "Moneda Decimal (Dólares Estadounidenses USD)",
+                "origen": "Encuesta de Finanzas Personales (columna monthly_expense_total)",
+                "descripcion": (
+                    "Monto promedio de dinero que el usuario gasta mensualmente para cubrir todas sus necesidades "
+                    "personales, estilo de vida, vivienda y servicios. Sirve como referencia base de su nivel de gasto de vida."
                 ),
+                "regla_o_calculo": "Equivale al gasto total mensual observado tal como fue declarado por el usuario en el corte transversal.",
             },
             {
                 "campo": "varianza_ingreso_segmento",
-                "tipo": "DOUBLE PRECISION",
-                "origen": "Calculado (Window por income_type)",
-                "descripcion": "Volatilidad de ingresos observada entre pares del mismo tipo de ingreso.",
-                "regla_o_calculo": "Varianza poblacional var_pop(monthly_income) dentro de cada income_type.",
+                "tipo": "Número Decimal Estadístico",
+                "origen": "Cálculo analítico por grupos de tipo de ingreso",
+                "descripcion": (
+                    "Medida estadística que refleja qué tan dispersos o volátiles son los ingresos entre personas "
+                    "que tienen el mismo tipo de trabajo (por ejemplo, entre todos los trabajadores independientes o 'Freelance')."
+                ),
+                "regla_o_calculo": "Calculado mediante la función de varianza poblacional estadística var_pop(monthly_income) agrupada por tipo de ingreso.",
             },
             {
                 "campo": "ratio_endeudamiento",
-                "tipo": "NUMERIC(10,4)",
-                "origen": "Personal Finance Tracker (debt_to_income_ratio)",
-                "descripcion": "Proporción del ingreso mensual comprometida en pago de deudas (DTI).",
-                "regla_o_calculo": "Nativa del dataset (0.1 a 0.6). Clave para definir el Nivel de Madurez.",
+                "tipo": "Porcentaje Decimal (0.0 a 1.0)",
+                "origen": "Encuesta de Finanzas Personales (columna debt_to_income_ratio)",
+                "descripcion": (
+                    "Porcentaje o proporción de los ingresos mensuales totales que el usuario tiene comprometido para "
+                    "el pago de deudas previas (también conocido internacionalmente como DTI: Debt-to-Income). Un ratio alto reduce la libertad financiera."
+                ),
+                "regla_o_calculo": "Proporción original entre 0.10 y 0.60. Un valor de 0.30 significa que el 30% del ingreso se va únicamente en saldar deudas.",
             },
             {
                 "campo": "alerta_fraude",
-                "tipo": "BOOLEAN",
-                "origen": "Personal Finance Tracker (fraud_flag)",
-                "descripcion": "Señal preventiva de anomalía transaccional o posible fraude.",
-                "regla_o_calculo": "Casteo booleano explícito de fraud_flag (1=True, 0=False).",
+                "tipo": "Booleano (Verdadero o Falso)",
+                "origen": "Encuesta de Finanzas Personales (columna fraud_flag)",
+                "descripcion": (
+                    "Indicador preventivo de seguridad que se activa cuando los movimientos monetarios o transferencias "
+                    "del usuario presentan inconsistencias, movimientos atípicos o sospechas de actividad fraudulenta."
+                ),
+                "regla_o_calculo": "Transformación directa del campo numérico de auditoría: Verdadero (True) si es 1, Falso (False) si es 0.",
             },
             {
                 "campo": "suscripciones_por_1000_ingreso",
-                "tipo": "NUMERIC(38,21)",
-                "origen": "Calculado (subscription_services / ingreso)",
-                "descripcion": "Tasa de intensidad de suscripciones activas por cada $1,000 USD de ingreso.",
-                "regla_o_calculo": (
-                    "subscription_services / (monthly_income / 1000). Evita inventar un precio en USD "
-                    "por servicio dado que la fuente registra un conteo entero (1 a 9)."
+                "tipo": "Número Decimal Continuo",
+                "origen": "Cálculo analítico derivado de la cantidad de suscripciones y el ingreso",
+                "descripcion": (
+                    "Métrica que indica cuántos servicios digitales o suscripciones activas (como streaming, música o gimnasio) "
+                    "mantiene contratadas la persona por cada mil dólares de ingresos que percibe al mes."
                 ),
+                "regla_o_calculo": "Calculado como: cantidad de suscripciones activas dividida entre (ingreso mensual neto / 1000).",
             },
             {
                 "campo": "fondo_emergencia_meses",
-                "tipo": "NUMERIC(38,20)",
-                "origen": "Calculado (emergency_fund / gasto)",
-                "descripcion": "Meses de subsistencia cubiertos por el fondo de emergencia actual.",
+                "tipo": "Número Decimal Continuo",
+                "origen": "Cálculo analítico derivado del fondo de reserva sobre el gasto",
+                "descripcion": (
+                    "Cantidad estimada de meses que el usuario podría seguir cubriendo sus gastos indispensables de vida "
+                    "utilizando exclusivamente su dinero de reserva, en caso de quedarse sin ningún ingreso el día de hoy."
+                ),
                 "regla_o_calculo": (
-                    "emergency_fund / monthly_expense_total. Benchmark industrial recomendado: 3 a 6 meses. "
-                    "Media observada en jóvenes: 0.37 meses."
+                    "Calculado como: fondo de reserva acumulado dividido entre el gasto mensual total. El estándar de la industria "
+                    "recomienda tener entre 3 y 6 meses; el promedio real detectado en este grupo de usuarios jóvenes es de apenas 0.37 meses."
                 ),
             },
         ],
     },
     "gold.fact_perfil_detalle": {
         "nombre_tecnico": "gold.fact_perfil_detalle",
-        "capa": "Gold (Base Analítica DW)",
+        "capa": "Gold (Base Analítica de Datos Listos para Consumo)",
         "formato_origen": "Tabla relacional sembrada (config/create-fact-perfil-detalle.sql)",
-        "ubicacion_dw": "postgres-dw / gemelo_digital / esquema gold",
-        "grano": "Perfiles arquetípicos de demostración (Ana Caso 1 PFT_0000636 y Ana madura PFT_0002539)",
-        "data_owner": "Área de Innovación & Producto Digital",
-        "custodio_tecnico": "Equipo de Data Engineering Moneta",
-        "frecuencia_actualizacion": "Aditiva e idempotente bajo demanda",
-        "sensibilidad": "Uso demostrativo y auditoría en vivo",
+        "ubicacion_dw": "postgres-dw / base gemelo_digital / esquema gold",
+        "grano": "Perfiles arquetípicos de demostración (Ana Primeriza PFT_0000636 y Ana Madura PFT_0002539)",
+        "data_owner": "Área de Innovación y Producto Digital",
+        "custodio_tecnico": "Equipo de Ingeniería de Datos Moneta",
+        "frecuencia_actualizacion": "Actualización bajo demanda con validación estricta de coherencia previa",
+        "sensibilidad": "Uso demostrativo y auditoría en tiempo real para sesiones de mentoría",
         "descripcion_funcional": (
-            "Provee el desglose presupuestario granular para la experiencia conversacional "
-            "de Centavo y el panel 'Lo que tengo hoy', incluyendo metas de ahorro, inversión mensual, "
-            "vivienda y montos declarados con validación estricta de huella (hash)."
+            "Provee el desglose presupuestario granular para la experiencia conversacional del asistente "
+            "financiero inteligente y el panel de control personal, incluyendo metas de ahorro mensuales, inversiones y vivienda."
         ),
         "campos": [
             {
                 "campo": "record_id",
-                "tipo": "TEXT (PK)",
-                "origen": "Silver PFT (localizado por huella de valores)",
-                "descripcion": "Identificador del perfil arquetípico.",
-                "regla_o_calculo": "PFT_0000636 (Ana Primeriza) / PFT_0002539 (Ana Más Madura).",
+                "tipo": "Texto (Identificador Único - Clave Primaria)",
+                "origen": "Localizado con precisión por huella de valores en la encuesta de finanzas",
+                "descripcion": (
+                    "Código único asignado a los perfiles modelo utilizados en la aplicación demostrativa. "
+                    "PFT_0000636 corresponde a la usuaria 'Ana Primeriza' (nivel de inicio) y PFT_0002539 a 'Ana Consolidada' (nivel más avanzado)."
+                ),
+                "regla_o_calculo": "Identificador exacto verificado mediante huella de gasto, ingreso y ratio de deuda.",
             },
             {
                 "campo": "meta_ahorro_mensual",
-                "tipo": "NUMERIC(18,2)",
-                "origen": "Personal Finance Tracker (budget_goal)",
-                "descripcion": "Objetivo de ahorro monetario fijado para el mes en USD.",
-                "regla_o_calculo": "Equivale funcionalmente a la meta de ahorro esperada.",
+                "tipo": "Moneda Decimal (Dólares Estadounidenses USD)",
+                "origen": "Encuesta de Finanzas Personales (columna budget_goal)",
+                "descripcion": (
+                    "Cantidad monetaria fijada como objetivo personal que el usuario se propuso ahorrar durante el mes en curso. "
+                    "Sirve para monitorear el grado de disciplina presupuestaria del usuario frente a su plan inicial."
+                ),
+                "regla_o_calculo": "Equivale a la meta monetaria registrada en el presupuesto inicial del participante.",
             },
             {
                 "campo": "ahorro_del_mes",
-                "tipo": "NUMERIC(18,2)",
-                "origen": "Personal Finance Tracker (actual_savings)",
-                "descripcion": "Ahorro real logrado al corte del mes en USD.",
-                "regla_o_calculo": "Verificado como max(0, ingreso_mensual - gasto_promedio_3m).",
+                "tipo": "Moneda Decimal (Dólares Estadounidenses USD)",
+                "origen": "Encuesta de Finanzas Personales (columna actual_savings)",
+                "descripcion": (
+                    "Monto real de dinero que le quedó al usuario a fin de mes luego de descontar todos sus gastos "
+                    "efectivos de su ingreso disponible. Corresponde al dinero verdaderamente ahorrado."
+                ),
+                "regla_o_calculo": "Calculado y verificado como el excedente positivo: ingreso mensual menos gasto mensual total.",
             },
             {
                 "campo": "meta_ahorro_cumplida",
-                "tipo": "BOOLEAN",
-                "origen": "Personal Finance Tracker (savings_goal_met)",
-                "descripcion": "Indica si se alcanzó la meta mensual.",
-                "regla_o_calculo": "True si ahorro_del_mes >= meta_ahorro_mensual.",
+                "tipo": "Booleano (Verdadero o Falso)",
+                "origen": "Encuesta de Finanzas Personales (columna savings_goal_met)",
+                "descripcion": (
+                    "Indica de forma clara si el usuario logró cumplir o superar su meta mensual de ahorro programada. "
+                    "Permite al asistente felicitar al usuario o brindarle consejos correctivos de ahorro."
+                ),
+                "regla_o_calculo": "Es Verdadero (True) si el ahorro del mes fue igual o mayor a la meta propuesta; Falso (False) si quedó por debajo.",
             },
             {
                 "campo": "inversion_mensual",
-                "tipo": "NUMERIC(18,2)",
-                "origen": "Personal Finance Tracker (investment_amount)",
-                "descripcion": "Aportación mensual recurrente a instrumentos de inversión en USD.",
-                "regla_o_calculo": "Inferencia de escala mensual basada en la mediana poblacional (~10% ingreso).",
+                "tipo": "Moneda Decimal (Dólares Estadounidenses USD)",
+                "origen": "Encuesta de Finanzas Personales (columna investment_amount)",
+                "descripcion": (
+                    "Cantidad de dinero que la persona destina mensualmente hacia instrumentos de inversión financiera "
+                    "(como fondos indexados, acciones o depósitos a plazo) para hacer crecer su patrimonio a largo plazo."
+                ),
+                "regla_o_calculo": "Inferencia de escala mensual alineada a la mediana de los usuarios observados (~10% del ingreso).",
             },
             {
                 "campo": "fondo_emergencia_usd",
-                "tipo": "NUMERIC(18,2)",
-                "origen": "Personal Finance Tracker (emergency_fund)",
-                "descripcion": "Saldo acumulado en el fondo para emergencias en USD.",
-                "regla_o_calculo": "Monto directo verificado contra la fuente.",
+                "tipo": "Moneda Decimal (Dólares Estadounidenses USD)",
+                "origen": "Encuesta de Finanzas Personales (columna emergency_fund)",
+                "descripcion": (
+                    "Monto total acumulado y disponible en efectivo o en cuenta líquida que el usuario reserva exclusivamente "
+                    "para afrontar imprevistos de fuerza mayor, tales como emergencias médicas o pérdida de empleo."
+                ),
+                "regla_o_calculo": "Valor monetario en dólares verificado directamente contra la fuente de datos original.",
             },
             {
                 "campo": "proporcion_esencial",
-                "tipo": "NUMERIC(6,4)",
-                "origen": "Calculado",
-                "descripcion": "Proporción del gasto declarado correspondiente a necesidades esenciales.",
-                "regla_o_calculo": (
-                    "essential_spending / (essential_spending + discretionary_spending). "
-                    "Se almacena como ratio porque los montos no suman el gasto total en 97% de las filas."
+                "tipo": "Porcentaje Decimal (0.0 a 1.0)",
+                "origen": "Cálculo analítico derivado de las declaraciones de gasto",
+                "descripcion": (
+                    "Porcentaje que representan los gastos estrictamente necesarios para subsistir (como comida y vivienda) "
+                    "respecto a la suma de los gastos esenciales y los gastos prescindibles o de ocio declarados."
                 ),
+                "regla_o_calculo": "Calculado como: gasto esencial / (gasto esencial + gasto discrecional). Se almacena como proporción porque en el 97% de los casos estos montos no suman exactamente el gasto total.",
             },
             {
                 "campo": "gasto_esencial_declarado",
-                "tipo": "NUMERIC(18,2)",
-                "origen": "Personal Finance Tracker (essential_spending)",
-                "descripcion": "Monto de gasto esencial declarado en USD.",
-                "regla_o_calculo": "Monto nominal directo.",
+                "tipo": "Moneda Decimal (Dólares Estadounidenses USD)",
+                "origen": "Encuesta de Finanzas Personales (columna essential_spending)",
+                "descripcion": (
+                    "Monto de dinero que la persona reporta destinar a cubrir sus necesidades básicas e ineludibles "
+                    "(alimentación, salud, servicios básicos y transporte indispensable)."
+                ),
+                "regla_o_calculo": "Monto nominal directo reportado por el usuario en su cuestionario presupuestario.",
             },
             {
                 "campo": "gasto_discrecional_declarado",
-                "tipo": "NUMERIC(18,2)",
-                "origen": "Personal Finance Tracker (discretionary_spending)",
-                "descripcion": "Monto de gasto variable/estilo de vida declarado en USD.",
-                "regla_o_calculo": "Monto nominal directo.",
+                "tipo": "Moneda Decimal (Dólares Estadounidenses USD)",
+                "origen": "Encuesta de Finanzas Personales (columna discretionary_spending)",
+                "descripcion": (
+                    "Monto monetario que el usuario afirma gastar en compras no esenciales, entretenimiento personal, "
+                    "salidas a comer fuera, ropa y actividades recreativas."
+                ),
+                "regla_o_calculo": "Monto nominal directo declarado por el participante de la encuesta.",
             },
             {
                 "campo": "vivienda_mensual",
-                "tipo": "NUMERIC(18,2)",
-                "origen": "Personal Finance Tracker (rent_or_mortgage)",
-                "descripcion": "Gasto mensual de vivienda (renta o cuota) en USD.",
-                "regla_o_calculo": "Subcomponente del gasto esencial verificado.",
+                "tipo": "Moneda Decimal (Dólares Estadounidenses USD)",
+                "origen": "Encuesta de Finanzas Personales (columna rent_or_mortgage)",
+                "descripcion": (
+                    "Pago mensual recurrente destinado a cubrir el techo habitacional, ya sea por concepto de alquiler "
+                    "o por la cuota mensual de una hipoteca. Constituye la porción más relevante del gasto esencial."
+                ),
+                "regla_o_calculo": "Monto monetario reportado y verificado como un subcomponente del gasto esencial.",
             },
             {
                 "campo": "edad_ilustrativa",
-                "tipo": "INTEGER",
-                "origen": "Derivada (age_synthetic_flag = True)",
-                "descripcion": "Edad ilustrativa coherente con el score de madurez.",
-                "regla_o_calculo": "Generada con ruido determinístico a partir del maturity_score.",
+                "tipo": "Número Entero (Años)",
+                "origen": "Derivado sintético con etiqueta de auditoría (age_synthetic_flag = True)",
+                "descripcion": (
+                    "Edad representativa asignada al perfil arquetípico para contextualizar las recomendaciones "
+                    "educativas del asistente financiero virtual sin exponer datos privados de personas reales."
+                ),
+                "regla_o_calculo": "Generada de manera determinista a partir de los patrones de madurez financiera del perfil.",
             },
             {
                 "campo": "huella_*",
-                "tipo": "NUMERIC",
-                "origen": "Validación cruzada",
-                "descripcion": "Huellas de auditoría (ingreso, gasto y endeudamiento).",
-                "regla_o_calculo": "Si el pipeline reordena record_id y no coinciden, la transacción aborta.",
+                "tipo": "Número Decimal de Validación",
+                "origen": "Mecanismo interno de integridad y auditoría cruzada",
+                "descripcion": (
+                    "Conjunto de valores de control (huella de ingreso, huella de gasto y huella de endeudamiento) "
+                    "que garantizan que el perfil arquetípico no se confunda con otra fila si los identificadores se recalculan."
+                ),
+                "regla_o_calculo": "Si tras una recarga del pipeline los datos no coinciden exactamente con la huella registrada, el sistema cancela la operación automáticamente.",
             },
         ],
     },
     "operational.pipeline_alerts": {
         "nombre_tecnico": "operational.pipeline_alerts",
-        "capa": "Operational (Auditoría & Observabilidad)",
-        "formato_origen": "PostgreSQL nativo",
-        "ubicacion_dw": "postgres-dw / gemelo_digital / esquema operational",
-        "grano": "1 fila por evento/incidente registrado",
+        "capa": "Operational (Auditoría Técnica y Observabilidad de Infraestructura)",
+        "formato_origen": "Tabla relacional nativa en PostgreSQL",
+        "ubicacion_dw": "postgres-dw / base gemelo_digital / esquema operational",
+        "grano": "Una fila por cada evento de error o advertencia registrado durante la ejecución de los pipelines",
         "data_owner": "Área de Operaciones de Datos y Plataforma (DataOps)",
-        "custodio_tecnico": "Administrador de Apache Airflow",
-        "frecuencia_actualizacion": "Tiempo real ante callbacks de DAGs",
-        "sensibilidad": "Uso técnico interno de infraestructura",
+        "custodio_tecnico": "Administrador de Orquestación de Flujos (Apache Airflow)",
+        "frecuencia_actualizacion": "Registro en tiempo real cuando se dispara un evento o fallo en las tareas",
+        "sensibilidad": "Uso técnico interno de infraestructura y soporte",
         "descripcion_funcional": (
-            "Bitácora histórica persistente de fallos en tareas, reintentos de pipeline "
-            "y violaciones de SLAs contractuales de tiempo de cómputo en Apache Airflow."
+            "Bitácora histórica y permanente de fallos en tareas, reintentos y violaciones a los Acuerdos "
+            "de Nivel de Servicio (SLAs: tiempos contractuales máximos de ejecución fijados en 4 o 5 minutos) en Apache Airflow."
         ),
         "campos": [
             {
                 "campo": "id",
-                "tipo": "SERIAL (PK)",
-                "origen": "PostgreSQL",
-                "descripcion": "Identificador secuencial del incidente.",
-                "regla_o_calculo": "Autoincremental.",
+                "tipo": "Número Entero Autoincremental (Clave Primaria)",
+                "origen": "Generador secuencial interno de PostgreSQL",
+                "descripcion": (
+                    "Número correlativo y único asignado automáticamente a cada evento de alerta para permitir "
+                    "su identificación unívoca y seguimiento en auditorías técnicas."
+                ),
+                "regla_o_calculo": "Valor generado automáticamente por la base de datos de manera estrictamente creciente.",
             },
             {
                 "campo": "alert_timestamp",
-                "tipo": "TIMESTAMP",
-                "origen": "Callback Airflow",
-                "descripcion": "Fecha y hora exacta del suceso.",
-                "regla_o_calculo": "now() al disparar el evento.",
+                "tipo": "Fecha y Hora con Zona Horaria",
+                "origen": "Función de captura de tiempo de Apache Airflow",
+                "descripcion": (
+                    "Momento cronológico exacto (año, mes, día, hora, minuto y segundo) en el que se disparó la alerta "
+                    "durante la ejecución de los procesos automáticos de datos."
+                ),
+                "regla_o_calculo": "Marca de tiempo del servidor (now()) registrada en el momento exacto del incidente.",
             },
             {
                 "campo": "alert_type",
-                "tipo": "VARCHAR(50)",
-                "origen": "dags/alerts.py",
-                "descripcion": "Categoría de la alerta operativa.",
-                "regla_o_calculo": "'TASK_FAILURE', 'SLA_MISS' o 'PIPELINE_ERROR'.",
+                "tipo": "Texto Corto (Categoría de Incidente)",
+                "origen": "Módulo dags/alerts.py",
+                "descripcion": (
+                    "Tipo de problema operativo ocurrido durante la ejecución. Permite diferenciar una tarea caída "
+                    "de una tarea que tardó más tiempo del permitido por contrato."
+                ),
+                "regla_o_calculo": "Toma los valores: 'TASK_FAILURE' (fallo en la tarea), 'SLA_MISS' (límite de tiempo excedido) o 'PIPELINE_ERROR' (error del flujo general).",
             },
             {
                 "campo": "dag_id / task_id",
-                "tipo": "VARCHAR(200)",
-                "origen": "Contexto de ejecución Airflow",
-                "descripcion": "DAG y tarea afectada.",
-                "regla_o_calculo": "Identificador técnico en Airflow.",
+                "tipo": "Texto",
+                "origen": "Contexto de ejecución del orquestador Apache Airflow",
+                "descripcion": (
+                    "Nombre identificador del flujo de trabajo (DAG o Grafo Acíclico Dirigido) y de la tarea específica "
+                    "dentro del flujo donde ocurrió la falla técnica reportada."
+                ),
+                "regla_o_calculo": "Identificador técnico tal como fue definido en los scripts de Apache Airflow.",
             },
             {
                 "campo": "severity",
-                "tipo": "VARCHAR(20)",
-                "origen": "dags/alerts.py",
-                "descripcion": "Nivel de severidad operacional.",
-                "regla_o_calculo": "'CRITICAL' (requiere acción/rollback) o 'WARNING' (informativo).",
+                "tipo": "Texto Corto (Nivel de Gravedad)",
+                "origen": "Módulo dags/alerts.py",
+                "descripcion": (
+                    "Nivel de urgencia del incidente. Señala al equipo técnico si se requiere intervención manual urgente "
+                    "o si se trata de un simple aviso informativo que no detiene el servicio."
+                ),
+                "regla_o_calculo": "'CRITICAL' (crítico, requiere atención inmediata y reversión) o 'WARNING' (advertencia informativa sin caída del servicio).",
             },
             {
                 "campo": "message / details",
-                "tipo": "TEXT / JSONB",
-                "origen": "Traceback / Métricas",
-                "descripcion": "Detalle técnico, traceback y parámetros de ejecución del incidente.",
-                "regla_o_calculo": "Cuerpo del error formateado en JSON.",
+                "tipo": "Texto y Documento Estructurado en Formato JSON",
+                "origen": "Traza de error del sistema y métricas de ejecución",
+                "descripcion": (
+                    "Explicación detallada del error, incluyendo la traza del código (traceback), las variables implicadas "
+                    "y los parámetros con los que la tarea estaba corriendo al momento del fallo."
+                ),
+                "regla_o_calculo": "Cuerpo del error formateado en texto estructurado JSON para facilitar su diagnóstico técnico.",
             },
         ],
     },
