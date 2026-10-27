@@ -13,11 +13,13 @@ Paneles consolidados:
 
 from __future__ import annotations
 
+import html
 import os
 import pandas as pd
 import plotly.graph_objects as go
 import psycopg2
 import streamlit as st
+import textwrap
 
 from styles import render_header_moneta
 from data_catalog import DAMA_DOMINIOS, INVENTARIO_TABLAS
@@ -67,8 +69,7 @@ def _layout_transparente(
 ) -> go.Figure:
     fig.update_layout(
         height=alto,
-        margin=margen
-        or {"l": 15, "r": 15, "t": 30, "b": 25},  # <-- Cambiar 'left' por 'l'
+        margin=margen or {"l": 15, "r": 15, "t": 30, "b": 25},
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font={"color": "#FFFFFF", "family": "Inter, sans-serif"},
@@ -143,7 +144,6 @@ def render_alerts_and_timing_tab():
         "cumplimiento de SLAs contractuales."
     )
 
-    # 1. Alertas
     try:
         df_alerts = load_pipeline_alerts()
     except Exception:
@@ -202,7 +202,6 @@ def render_alerts_and_timing_tab():
             unsafe_allow_html=True,
         )
 
-    # 2. Gráfico Tiempos vs SLAs
     st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
     st.markdown("#### Duración de Tareas vs. Límite de SLA (Última Corrida)")
 
@@ -244,7 +243,6 @@ def render_alerts_and_timing_tab():
     else:
         st.info("Sin registros de ejecución en operational.pipeline_execution_log.")
 
-    # Registro de incidentes reciente
     if not df_alerts.empty:
         with st.expander(
             "Ver bitácora detallada de incidentes (operational.pipeline_alerts)"
@@ -307,7 +305,6 @@ def render_quality_tab():
                 unsafe_allow_html=True,
             )
 
-    # Gráfico de tendencia de calidad
     st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
     st.markdown("#### Tasa de Conformidad de Registros por Fuente (%)")
     fig = go.Figure()
@@ -436,14 +433,12 @@ def render_data_governance_tab():
         "y diccionario de campos."
     )
 
-    # Resumen de Marco DAMA
     with st.expander("📚 Marco de Gobierno de Datos Moneta (Alineado a DAMA-DMBOK)"):
         for dominio, detalle in DAMA_DOMINIOS.items():
             st.markdown(f"**• {dominio}:** {detalle}")
 
     st.markdown("---")
 
-    # Selector de Tabla del Inventario
     tablas_disponibles = list(INVENTARIO_TABLAS.keys())
     tabla_sel = st.selectbox(
         "Selecciona la tabla que deseas auditar:",
@@ -453,17 +448,16 @@ def render_data_governance_tab():
 
     info = INVENTARIO_TABLAS[tabla_sel]
 
-    # Ficha Técnica de la Tabla (Owner, Ubicación, Capa)
     col1, col2 = st.columns([1.2, 1.0], gap="medium")
     with col1:
         st.markdown(
             f"""
             <div class="fintech-card" style="border-left: 3px solid #00F2FE;">
                 <div class="metric-title">{info['nombre_tecnico']}</div>
-                <div style="font-size: 0.95rem; color: #FFFFFF; margin-top: 6px;">
+                <div style="font-size: 0.95rem; color: #FFFFFF; margin-top: 6px; line-height: 1.5;">
                     {info['descripcion_funcional']}
                 </div>
-                <div style="margin-top: 12px; font-size: 0.85rem; color: #94A3B8;">
+                <div style="margin-top: 12px; font-size: 0.85rem; color: #94A3B8; line-height: 1.6;">
                     <b>Capa:</b> {info['capa']}<br>
                     <b>Granularidad:</b> {info['grano']}<br>
                     <b>Frecuencia de Actualización:</b> {info['frecuencia_actualizacion']}
@@ -493,43 +487,106 @@ def render_data_governance_tab():
     st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
     st.markdown("#### 📖 Diccionario Funcional de Campos")
     st.caption(
-        "Descripción de negocio, reglas de cálculo, aproximaciones metodológicas y linaje de datos."
+        "Descripción accesible de negocio, reglas de derivación y desglose de siglas."
     )
 
-    # Buscador de campos
     filtro_campo = st.text_input(
         "🔍 Filtrar campos por nombre o palabra clave:", "", key="filtro_campos"
     )
 
-    df_campos = pd.DataFrame(info["campos"])
+    campos_lista = info["campos"]
+    if filtro_campo.strip():
+        f = filtro_campo.lower()
+        campos_lista = [
+            c
+            for c in campos_lista
+            if f in c["campo"].lower()
+            or f in c["descripcion"].lower()
+            or f in c["regla_o_calculo"].lower()
+            or f in c["origen"].lower()
+        ]
 
-    if filtro_campo:
-        mask = (
-            df_campos["campo"].str.contains(filtro_campo, case=False, na=False)
-            | df_campos["descripcion"].str.contains(filtro_campo, case=False, na=False)
-            | df_campos["regla_o_calculo"].str.contains(
-                filtro_campo, case=False, na=False
-            )
+    # Renderizado con HTML/CSS responsivo: columnas de tamaño proporcional fijo,
+    # salto de línea automático y filas que se adaptan a la altura del texto completo.
+    html_filas = []
+    for c in campos_lista:
+        c_campo = html.escape(str(c.get("campo", "")))
+        c_tipo = html.escape(str(c.get("tipo", "")))
+        c_origen = html.escape(str(c.get("origen", "")))
+        c_desc = html.escape(str(c.get("descripcion", "")))
+        c_regla = html.escape(str(c.get("regla_o_calculo", "")))
+
+        # Filas sin indentación inicial para no disparar el bloque de código de Markdown
+        fila = (
+            f'<tr>'
+            f'<td style="font-family: monospace; font-weight: 600; color: #00F2FE;">{c_campo}</td>'
+            f'<td style="color: #94A3B8;">{c_tipo}</td>'
+            f'<td style="color: #CBD5E1;">{c_origen}</td>'
+            f'<td style="color: #FFFFFF;">{c_desc}</td>'
+            f'<td style="color: #E2E8F0;">{c_regla}</td>'
+            f'</tr>'
         )
-        df_campos = df_campos[mask]
+        html_filas.append(fila)
 
-    # Renderizado de la tabla con configuración de columnas de Streamlit
-    st.dataframe(
-        df_campos,
-        column_config={
-            "campo": st.column_config.TextColumn("Campo Técnico", width="medium"),
-            "tipo": st.column_config.TextColumn("Tipo de Dato", width="small"),
-            "origen": st.column_config.TextColumn("Fuente / Linaje", width="small"),
-            "descripcion": st.column_config.TextColumn(
-                "Descripción Funcional (Negocio)", width="large"
-            ),
-            "regla_o_calculo": st.column_config.TextColumn(
-                "Regla de Cálculo / Derivación DAMA", width="large"
-            ),
-        },
-        hide_index=True,
-        use_container_width=True,
-    )
+    filas_body = "".join(html_filas)
+    if not html_filas:
+        filas_body = (
+            '<tr><td colspan="5" style="text-align: center; color: #94A3B8; padding: 20px;">'
+            'No se encontraron campos que coincidan con la búsqueda.'
+            '</td></tr>'
+        )
+
+    tabla_html = textwrap.dedent(f"""
+    <div style="
+        width: 100%;
+        overflow-x: auto;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 10px;
+        background-color: #161F30;
+        margin-top: 10px;
+        margin-bottom: 20px;
+    ">
+        <table style="
+            width: 100%;
+            border-collapse: collapse;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.88rem;
+            line-height: 1.55;
+            table-layout: fixed;
+        ">
+            <thead>
+                <tr style="background-color: rgba(11, 15, 25, 0.7); border-bottom: 2px solid rgba(148, 163, 184, 0.25);">
+                    <th style="width: 15%; padding: 12px 14px; text-align: left; color: #94A3B8; font-weight: 600;">Campo Técnico</th>
+                    <th style="width: 13%; padding: 12px 14px; text-align: left; color: #94A3B8; font-weight: 600;">Tipo de Dato</th>
+                    <th style="width: 18%; padding: 12px 14px; text-align: left; color: #94A3B8; font-weight: 600;">Fuente / Linaje</th>
+                    <th style="width: 27%; padding: 12px 14px; text-align: left; color: #94A3B8; font-weight: 600;">Descripción Funcional</th>
+                    <th style="width: 27%; padding: 12px 14px; text-align: left; color: #94A3B8; font-weight: 600;">Regla o Cálculo</th>
+                </tr>
+            </thead>
+            <tbody>
+                {filas_body}
+            </tbody>
+        </table>
+        <style>
+            table tbody tr {{
+                border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+                transition: background-color 0.15s ease;
+            }}
+            table tbody tr:hover {{
+                background-color: rgba(255, 255, 255, 0.03);
+            }}
+            table td {{
+                padding: 12px 14px;
+                vertical-align: top;
+                word-wrap: break-word;
+                overflow-wrap: break-word;
+                white-space: normal !important;
+            }}
+        </style>
+    </div>
+    """).strip()
+
+    st.markdown(tabla_html, unsafe_allow_html=True)
 
 
 def main() -> None:
