@@ -167,6 +167,11 @@ docker compose exec streamlit python -m assistant.run_faq_tests_t082 --corridas 
 
 * **Seguridad en dos líneas para Text-to-SQL:** Acceso a datos analíticos limitado al usuario assistant_ro con permisos exclusivos de SELECT sobre el esquema gold, ejecución en transacciones de solo lectura y timeout de 10 segundos. Antes de tocar la base de datos, un validador sintáctico en Python rechaza sentencias de escritura, inspecciones de esquemas ajenos o filtros cruzados entre perfiles.
 * **Arquitectura de certeza numérica:** Centavo no realiza cálculos aritméticos con el LLM. Las cifras de ahorro, brechas, colchones y plazos se computan de forma determinista en Python (plan_engine.py); el LLM solo redacta. Un guardrail en vivo repara restas de redondeo y suprime montos o juicios no respaldados antes de llegar al usuario.
+* **Hardening de Infraestructura y Runtime (Docker & PostgreSQL):**
+  * **Principio de menor privilegio en contenedores:** `Dockerfile.streamlit` configurado con usuario dedicado sin privilegios (`appuser`, UID/GID 10001) para neutralizar vectores de escape a host (RCE).
+  * **Restricción de capacidades en kernel:** `streamlit` opera con `cap_drop: [ALL]` y `security_opt: [no-new-privileges:true]`, bloqueando escalada de privilegios local y llamadas de sistema no autorizadas.
+  * **Segmentación de red local:** Todos los puertos expuestos (`postgres-dw`, `minio`, `airflow-webserver`, `streamlit`) configurados explícitamente con enlace local (`127.0.0.1`), impidiendo visibilidad en redes externas o interfaces LAN.
+  * **Hardening en PostgreSQL:** Revocación estricta de permisos de creación y modificación sobre el esquema `public` y base de datos para roles no administradores; rol `assistant_ro` confinado a `gold` en modo solo lectura (`default_transaction_read_only = on`) con timeout estricto de 10s.
 
 ## 🗺️ Estado del proyecto
 
