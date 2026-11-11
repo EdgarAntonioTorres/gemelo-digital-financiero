@@ -40,6 +40,9 @@ ALTER ROLE assistant_ro WITH LOGIN PASSWORD :'ro_password';
 ALTER ROLE assistant_ro SET default_transaction_read_only = on;
 ALTER ROLE assistant_ro SET statement_timeout = '10s';
 
+-- Revocar permisos heredados del rol público general en la base de datos
+REVOKE ALL ON DATABASE gemelo_digital FROM PUBLIC;
+
 GRANT CONNECT ON DATABASE gemelo_digital TO assistant_ro;
 GRANT USAGE ON SCHEMA gold TO assistant_ro;
 GRANT SELECT ON ALL TABLES IN SCHEMA gold TO assistant_ro;
@@ -48,3 +51,6 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA gold GRANT SELECT ON TABLES TO assistant_ro;
 -- El esquema operational (quality_metrics, pipeline_execution_log) es del
 -- dashboard técnico, no del asistente: sin acceso.
 REVOKE ALL ON SCHEMA operational FROM assistant_ro;
+
+-- Hardening adicional: bloquear completamente el esquema public para este rol
+REVOKE ALL ON SCHEMA public FROM assistant_ro;

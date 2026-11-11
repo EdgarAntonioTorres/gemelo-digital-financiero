@@ -33,45 +33,11 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__FERNET_KEY: ""
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
-    # Logging nativo de Airflow, configurado explícitamente ---
-    # Antes se dejaba en los defaults implícitos de la imagen; ahora queda
-    # declarado a propósito, para que quede documentado y sea reproducible
-    # (no depende de qué versión de Airflow decida cambiar sus defaults).
-    #
-    # LOGGING_LEVEL=INFO: mismo nivel que usan los 3 scripts de ingesta
-    # (logging.basicConfig(level=logging.INFO, ...)) — así el nivel de
-    # detalle es consistente entre lo que loguea Airflow y lo que loguea
-    # el propio spark-submit que Airflow invoca.
     AIRFLOW__LOGGING__LOGGING_LEVEL: "INFO"
-    # FAB_LOGGING_LEVEL: nivel de log del framework web (Flask-AppBuilder)
-    # que sirve la UI — por defecto es WARNING, que puede ocultar errores
-    # de autenticación/permisos útiles al depurar. Se sube a INFO por
-    # consistencia con el resto.
     AIRFLOW__LOGGING__FAB_LOGGING_LEVEL: "INFO"
-    # Formato explícito de las líneas de log de Airflow (scheduler,
-    # webserver, y el encabezado que Airflow antepone a cada línea de
-    # salida de las tareas). Se elige un formato con timestamp+nivel+
-    # logger+mensaje que es legible junto a las líneas que ya imprimen
-    # los propios scripts de ingesta (mismo estilo, no idéntico byte a
-    # byte porque Airflow no permite quitar sus propios campos internos
-    # como %(dag_id)s de este formato).
     AIRFLOW__LOGGING__LOG_FORMAT: "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"
-    # MAX_LOG_AGE_IN_DAYS: el proceso de limpieza nativo de Airflow
-    # (airflow-scheduler corre esto automáticamente) borra logs de tareas
-    # con más de 15 días. Sin esto, el volumen `airflow-logs` crece sin
-    # límite mientras dure el proyecto. 15 días es más que suficiente
-    # para un entorno de desarrollo donde las corridas se revisan a los
-    # pocos días de ejecutadas, no semanas después.
     AIRFLOW__LOGGING__MAX_LOG_AGE_IN_DAYS: "15"
-    # t045/t046 (Fase 3): permite que los scripts de transformations/
-    # (build_silver_*.py) importen expectations_config.py/quarantine.py
-    # de quality/, sin depender de --py-files en cada spark-submit.
-    # Deliberadamente NO se agrega diagnostics/ ni transformations/ aquí
-    # — la regla de Contexto Maestro §7.3 (diagnostics/ nunca importa de
-    # transformations/) sigue vigente, este PYTHONPATH solo habilita el
-    # sentido transformations/ -> quality/ que sí necesitamos.
     PYTHONPATH: /opt/airflow/src/spark/quality
-    # Credenciales / endpoints que consumen los DAGs y jobs de Spark:
     MINIO_ENDPOINT: http://minio:9000
     MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?falta MINIO_ROOT_USER en .env}
     MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?falta MINIO_ROOT_PASSWORD en .env}
@@ -85,17 +51,6 @@ x-airflow-common: &airflow-common
     - ./config:/opt/airflow/config
     - ./tests:/opt/airflow/tests
     - airflow-logs:/opt/airflow/logs
-    # kagglehub (usado por los 3 scripts de ingesta) busca el token en
-    # ~/.kaggle/access_token del usuario que corre el proceso. Se monta
-    # el mismo token que ya configuraste en el host (guía de entorno
-    # local §7.1, paso 7) — nada nuevo que generar. El usuario `airflow`
-    # dentro del contenedor tiene HOME=/home/airflow.
-    # SIN :ro (corregido tras la primera corrida real, 2026-08-21):
-    # kagglehub también escribe su propio archivo de log en
-    # ~/.kaggle/logs/kagglehub.log — si el mount es de solo lectura,
-    # esa escritura falla con PermissionError (no detiene la ingesta,
-    # pero ensucia el log). Como es entorno de desarrollo local, no
-    # producción, se acepta el mount en lectura/escritura.
     - ${HOME}/.kaggle:/home/airflow/.kaggle
   depends_on:
     postgres-airflow:
@@ -126,7 +81,7 @@ services:
       POSTGRES_PASSWORD: ${DW_POSTGRES_PASSWORD:?falta DW_POSTGRES_PASSWORD en .env}
       POSTGRES_DB: gemelo_digital
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres-dw-data:/var/lib/postgresql/data
       - ./config/init-dw-schemas.sql:/docker-entrypoint-initdb.d/init-dw-schemas.sql:ro
@@ -144,8 +99,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?falta MINIO_ROOT_USER en .env}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?falta MINIO_ROOT_PASSWORD en .env}
     ports:
-      - "9000:9000"   # API S3
-      - "9001:9001"   # Consola web
+      - "127.0.0.1:9000:9000"   # API S3 restringido a localhost
+      - "127.0.0.1:9001:9001"   # Consola web restringido a localhost
     volumes:
       - minio-data:/data
     healthcheck:
@@ -191,7 +146,7 @@ services:
     <<: *airflow-common
     command: webserver
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       airflow-init:
         condition: service_completed_successfully
@@ -206,16 +161,17 @@ services:
     restart: unless-stopped
 
   # --- Dashboard de calidad (t048/t049) ---
-  # Contenedor aparte de Airflow a propósito (ver Dockerfile.streamlit):
-  # no necesita PySpark, solo lee de postgres-dw (quality_metrics de
-  # t047 y pipeline_execution_log de t049
   streamlit:
     build:
       context: .
       dockerfile: Dockerfile.streamlit
     image: gemelo-digital-financiero/streamlit:latest
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
-      - "8501:8501"
+      - "127.0.0.1:8501:8501"
     environment:
       DW_POSTGRES_HOST: postgres-dw
       DW_POSTGRES_DB: gemelo_digital
